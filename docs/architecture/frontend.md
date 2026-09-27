@@ -95,4 +95,8 @@ blocking issue, else "complete the steps", else the next stage). A readiness sco
   light or dark.
 - **Offline-friendly assets:** fonts (Roboto) and icons (Material Symbols) are bundled, with no CDN
   dependency, because the UI must keep working during an incident.
+- **Login:** behind the gateway, APISIX runs the OIDC flow and keeps the session; the UI holds no tokens.
+  A `401` from the API (or a failing lazy chunk) reloads the page once, which leads to the Keycloak login
+  and back; a repeated attempt within 30 s is suppressed. *Sign out* links to `/logout`
+  ([[identity-gateway]]).
 - **Dev setup:** `make run` (backend) and `make ui` (Angular dev server with a proxy for `/api` and `/mcp`).

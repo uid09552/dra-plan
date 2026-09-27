@@ -14,9 +14,11 @@ Local stack in `docker-compose.yml` (all containers on the internal network **`d
 `.env` (template: `.env.example`). Decision: [[0010-keycloak-organizations-apisix]].
 
 ```
-browser / MCP client ──► APISIX :9080 ──(valid token only)──► dra-server (host :8090)
-        │                   │ JWKS / discovery (http://keycloak:8080, network drp)
-        └── login ───────► Keycloak :8180 (realm `dra`, organizations = tenants)
+browser ──► APISIX :9080 ──(session cookie → bearer token)──► dra-server (`backend` :8090)
+   │            │  └── pages, static assets ───────────────► UI nginx (`ui` :8080)
+   │            │ OIDC client, JWKS, discovery (http://keycloak:8080, network drp)
+   └── login ─► Keycloak :8180 (realm `dra`, organizations = tenants)
+MCP client ─► APISIX :9080 /mcp (bearer token) ─────────────► dra-server
                             │
                         PostgreSQL :5434 (databases `dra`, `keycloak`)
 ```
@@ -47,19 +49,33 @@ browser / MCP client ──► APISIX :9080 ──(valid token only)──► dr
 - Tokens use the public issuer `KEYCLOAK_PUBLIC_URL` (`http://localhost:8180/realms/dra`). Containers use
   the backchannel `http://keycloak:8080` (`KC_HOSTNAME_BACKCHANNEL_DYNAMIC`).
 - Secrets in the realm file are `${ENV}` placeholders, resolved by Keycloak at import. The import runs only
-  if the realm does not exist yet (`IGNORE_EXISTING`). After changing `.env`, update the clients in the
-  admin console, or drop the realm and restart Keycloak.
+  if the realm does not exist yet (`IGNORE_EXISTING`). The redirect/logout URLs of `DRA_CLIENT_ID`
+  (`UI_URL` and `DRA_PUBLIC_URL`) are re-applied to an existing realm by `make keycloak-sync` (part of
+  `make up` / `make app-up`, script `deploy/keycloak/sync-client.sh`). Other changes: admin console, or
+  drop the realm and restart Keycloak.
 
 ## APISIX routes
+
+APISIX is the **OIDC client for the browser** (backend-for-frontend): it runs the authorization code flow
+with PKCE against `DRA_CLIENT_ID` (confidential), keeps the tokens in an encrypted session cookie
+(`APISIX_SESSION_SECRET`) and forwards the access token to the backend. The UI therefore holds no tokens.
 
 | Route | Paths | Auth |
 |-------|-------|------|
 | `dra-health` | `GET /api/v1/health` | public |
-| `dra-api` | `/api/*`, `/mcp` | `openid-connect` in `bearer_only` mode: JWT signature via JWKS, issuer, expiry. Invalid or missing token → 401. The token is forwarded to the backend. |
+| `dra-mcp` | `/mcp` | bearer token only (`APISIX_CLIENT_ID`, JWKS): AI/MCP clients. Missing or invalid → 401. |
+| `dra-api` | `/api/*` | browser session **or** bearer token; otherwise **401** (`unauth_action: deny`, never a redirect for XHR). The access token is forwarded as `Authorization: Bearer`. |
+| `dra-ui-assets` | `*.js`, `*.css`, fonts, icons | public: no data, identical for all users (lazy chunks must load after a session expired) |
+| `dra-ui` | everything else | session required, otherwise **302 to the Keycloak login** and back to the requested URL. Handles `/oidc/callback` and `/logout` (ends the Keycloak session, then returns to `DRA_PUBLIC_URL`). |
 
-The upstream is the backend on the host (`DRA_BACKEND_HOST:DRA_BACKEND_PORT`, default
-`host.docker.internal:8090`). Start it with `make run-gateway`, which listens on `0.0.0.0:8090` so the
-container can reach it. `make run` stays on `127.0.0.1` for UI-only work.
+Upstreams: `DRA_BACKEND_HOST:DRA_BACKEND_PORT` (default `backend:8090`) and `DRA_UI_HOST:DRA_UI_PORT`
+(default `ui:8080`), i.e. the containers of `make app-up`. For a backend on the host use
+`DRA_BACKEND_HOST=host.docker.internal` and `make run-gateway` (listens on `0.0.0.0:8090`).
+
+**UI behaviour:** a `401` from the API (session expired) makes the UI reload the page; behind the gateway
+this starts the login and returns to the same page. A lazy page chunk that fails to load triggers the same
+reload. A second attempt within 30 seconds is not repeated (no redirect loops, e.g. without a gateway).
+The *Sign out* menu item links to `/logout`.
 
 ## Status and next steps
 
@@ -67,14 +83,16 @@ container can reach it. `make run` stays on `127.0.0.1` for UI-only work.
   a JWT `Authenticator` adapter that validates the token (JWKS, `iss`, `aud` = `DRA_CLIENT_ID`) and maps the
   `tenant` claim (organization alias or `tenant_id` attribute → tenant slug) to the internal tenant id.
   Users in several organizations will need an explicit tenant selection.
-- The UI does not log in yet (OIDC code flow + PKCE against the `DRA_CLIENT_ID` client).
 - Production: TLS everywhere, disable direct access grants, and run Keycloak with `start` (not `start-dev`).
 
 ## Commands
 
 ```bash
-make up          # PostgreSQL + Keycloak + APISIX
-make run-gateway # backend reachable by APISIX
+make app-up      # PostgreSQL + Keycloak + APISIX + backend and UI containers
+                 # → http://localhost:9080 (login as demo-user, password DEMO_USER_PASSWORD from .env)
+make up          # PostgreSQL + Keycloak + APISIX only (with DRA_BACKEND_HOST=host.docker.internal:
+make run-gateway #   backend on the host, reachable by APISIX)
+make keycloak-sync # re-apply client redirect/logout URLs from .env
 make token       # access token of demo-user
 curl -H "Authorization: Bearer $(make -s token)" http://localhost:9080/api/v1/services
 ```

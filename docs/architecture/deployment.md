@@ -45,7 +45,8 @@ nginx serves the Angular build and proxies `/api/` and `/mcp` to `BACKEND_URL` (
 The profile `app` adds both containers to the stack on network `drp`:
 
 ```bash
-make app-up        # = docker compose --profile app up -d --build → UI on http://localhost:8080
+make app-up        # = docker compose --profile app up -d --build
+                   # → http://localhost:9080 (gateway, Keycloak login) or :8080 (UI directly, no login)
 make docker-build  # build dra-server:local and dra-ui:local only
 make down          # stop everything (incl. app containers), keep data
 ```
