@@ -1,0 +1,123 @@
+site_name: dra-workflow
+site_description: Guided disaster recovery planning and recovery execution for IT services (NIST SP 800-34, BSI-Standard 200-4).
+repo_url: https://github.com/uid09552/dra-plan
+repo_name: uid09552/dra-plan
+edit_uri: edit/main/docs/
+copyright: Licensed under the Apache License, Version 2.0
+
+# The knowledge base in docs/ stays tool-agnostic (see docs/README.md): plain Markdown with YAML
+# frontmatter and [[wiki-links]], which the hook tools/mkdocs/wikilinks.py turns into page links.
+docs_dir: docs
+exclude_docs: |
+  templates/
+
+validation:
+  links:
+    # Links to repository files outside docs/ (for example api/openapi.yaml) work on GitHub, not here.
+    not_found: info
+
+theme:
+  name: material
+  language: en
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+nav:
+  - Home: README.md
+  - Overview:
+      - Vision and scope: overview/vision.md
+      - Open questions: overview/open-questions.md
+  - Guide:
+      - UI tour: guide/ui-tour.md
+  - Workflows:
+      - Plan authoring: workflows/plan-authoring.md
+      - Recovery execution: workflows/recovery-execution.md
+  - Domain:
+      - Data model: domain/dr-plan-model.md
+      - Glossary: domain/glossary.md
+      - Standards mapping: domain/standards-mapping.md
+      - Scenario and strategy catalog: domain/scenario-catalog.md
+  - Requirements:
+      - Feature requirements: requirements/README.md
+      - Feature status: requirements/feature-status.md
+  - Architecture:
+      - Overview: architecture/architecture-overview.md
+      - Backend: architecture/backend.md
+      - REST API: architecture/api.md
+      - MCP interface: architecture/mcp.md
+      - Frontend: architecture/frontend.md
+      - Identity and gateway: architecture/identity-gateway.md
+      - Deployment: architecture/deployment.md
+  - Decisions (ADRs):
+      - 0001 Rust backend: adr/0001-rust-backend.md
+      - 0002 Angular Material: adr/0002-angular-material-frontend.md
+      - 0003 Markdown knowledge base: adr/0003-markdown-knowledge-base.md
+      - 0004 Tenant hierarchy: adr/0004-tenant-service-microservice-hierarchy.md
+      - 0005 Standards basis: adr/0005-standards-basis.md
+      - 0006 Contract-first REST: adr/0006-rest-openapi-contract-first.md
+      - 0007 Hexagonal backend: adr/0007-hexagonal-feature-sliced-backend.md
+      - 0008 Use-case based MCP: adr/0008-use-case-based-mcp.md
+      - 0009 UI layout, i18n, theming: adr/0009-ui-layout-i18n-theming.md
+      - 0010 Keycloak and APISIX: adr/0010-keycloak-organizations-apisix.md
+      - 0011 Optional components: adr/0011-optional-components.md
+  - Update log: log.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search
+
+hooks:
+  - tools/mkdocs/wikilinks.py
+
+extra:
+  status:
+    deprecated: Deprecated or superseded
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/uid09552/dra-plan

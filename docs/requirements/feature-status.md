@@ -10,7 +10,7 @@ related: [README, plan-authoring, frontend, backend, api, mcp]
 
 # Feature Status
 
-Implementation status of the [[README|feature requirements]] (sections 1–19). Legend:
+Implementation status of the [[requirements/README|feature requirements]] (sections 1–19). Legend:
 **done** = usable end to end (API, UI, MCP where it makes sense); **partial** = parts exist (often
 API only, or a simplified version); **open** = not started.
 

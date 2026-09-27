@@ -1,11 +1,21 @@
 # Declarative APISIX configuration (standalone mode). ${{VAR}} values come from the container
 # environment (see docker-compose.yml / .env).
+#
+# Browser: APISIX is the OIDC client (confidential realm client ${DRA_CLIENT_ID}, authorization code
+# flow with PKCE). It keeps the tokens in an encrypted session cookie and forwards the access token to
+# the backend. API/MCP clients send their own bearer token.
 upstreams:
   - id: dra-backend
     type: roundrobin
     nodes:
       - host: "${{DRA_BACKEND_HOST}}"
         port: ${{DRA_BACKEND_PORT}}
+        weight: 1
+  - id: dra-ui
+    type: roundrobin
+    nodes:
+      - host: "${{DRA_UI_HOST}}"
+        port: ${{DRA_UI_PORT}}
         weight: 1
 
 routes:
@@ -16,9 +26,9 @@ routes:
     priority: 10
     upstream_id: dra-backend
 
-  # REST API and MCP: a valid Keycloak access token (realm ${KEYCLOAK_REALM}) is required.
-  - id: dra-api
-    uris: ["/api/*", "/mcp"]
+  # MCP: bearer tokens only (AI clients), validated against Keycloak's JWKS.
+  - id: dra-mcp
+    uri: /mcp
     upstream_id: dra-backend
     plugins:
       request-id:
@@ -29,11 +39,61 @@ routes:
         client_secret: "${{APISIX_CLIENT_SECRET}}"
         discovery: "http://keycloak:8080/realms/${{KEYCLOAK_REALM}}/.well-known/openid-configuration"
         realm: "${{KEYCLOAK_REALM}}"
-        # API mode: no login redirect, only validate bearer tokens (signature via JWKS).
         bearer_only: true
         use_jwks: true
+        set_access_token_header: true
+        access_token_in_authorization_header: true
+        set_userinfo_header: false
+
+  # REST API: the browser session (cookie) or a bearer token. Without either → 401, never a redirect:
+  # the UI reacts to 401 by reloading the page, which starts the login (route dra-ui).
+  - id: dra-api
+    uri: /api/*
+    upstream_id: dra-backend
+    plugins:
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      openid-connect:
+        client_id: "${{DRA_CLIENT_ID}}"
+        client_secret: "${{DRA_CLIENT_SECRET}}"
+        discovery: "http://keycloak:8080/realms/${{KEYCLOAK_REALM}}/.well-known/openid-configuration"
+        realm: "${{KEYCLOAK_REALM}}"
+        bearer_only: false
+        unauth_action: deny
+        use_jwks: true
+        use_pkce: true
+        redirect_uri: "${{DRA_PUBLIC_URL}}/oidc/callback"
+        session:
+          secret: "${{APISIX_SESSION_SECRET}}"
         # Forward the token to the backend (it reads the `tenant` claim).
         set_access_token_header: true
         access_token_in_authorization_header: true
         set_userinfo_header: false
+        set_id_token_header: false
+
+  # UI (everything else): without a session → redirect to the Keycloak login page and back.
+  # Also handles /oidc/callback (login) and /logout (ends the Keycloak session too).
+  - id: dra-ui
+    uri: /*
+    priority: -10
+    upstream_id: dra-ui
+    plugins:
+      openid-connect:
+        client_id: "${{DRA_CLIENT_ID}}"
+        client_secret: "${{DRA_CLIENT_SECRET}}"
+        discovery: "http://keycloak:8080/realms/${{KEYCLOAK_REALM}}/.well-known/openid-configuration"
+        realm: "${{KEYCLOAK_REALM}}"
+        bearer_only: false
+        unauth_action: auth
+        use_pkce: true
+        scope: "openid profile email organization"
+        redirect_uri: "${{DRA_PUBLIC_URL}}/oidc/callback"
+        logout_path: /logout
+        post_logout_redirect_uri: "${{DRA_PUBLIC_URL}}/"
+        session:
+          secret: "${{APISIX_SESSION_SECRET}}"
+        set_access_token_header: false
+        set_userinfo_header: false
+        set_id_token_header: false
 #END

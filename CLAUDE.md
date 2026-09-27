@@ -42,7 +42,8 @@ backend/             Rust crate dra-server: src/{shared,features/<feature>,mcp},
 frontend/            Angular app: src/app/{core,layout,features}; Dockerfile + nginx/ (run stage)
 deploy/              postgres init (app role not superuser → RLS), keycloak realm import, apisix config
 docker-compose.yml   PostgreSQL + Keycloak + APISIX on network `drp`; secrets from `.env` (template `.env.example`, never commit `.env`)
-docs/                Knowledge base: overview, architecture, ADRs, domain, workflows, requirements
+docs/                Knowledge base (OKF bundle, root docs/README.md, log docs/log.md): overview, guide, architecture, ADRs, domain, workflows, requirements; screenshots in docs/assets/screenshots/
+mkdocs.yml           MkDocs site over docs/ (Material); tools/mkdocs/wikilinks.py resolves [[wiki-links]]; toolchain in requirements-docs.txt
 todo.txt             User's task list; remove items once they are done and verified (open items only)
 LICENSE, NOTICE       Apache License 2.0; README.md (project overview), CONTRIBUTING.md (contributor guide)
 ```
@@ -60,6 +61,7 @@ Everything goes through the root `Makefile` (`make help`):
 - `make lint`: `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings`
 - `make ui-test`, `make ui-lint`, `make ui-build`: frontend tests (Vitest), Prettier, production build
 - `make check`: all of the above plus `npx @redocly/cli lint` (OpenAPI)
+- `make docs` / `make docs-serve`: strict MkDocs build into `site/` / live preview on :8000 (Python venv `.venv-docs/`)
 - Backend CLI: `dra-server {serve|migrate|seed-catalog|export|healthcheck} --help`
 
 ## Conventions
@@ -139,4 +141,5 @@ Full reference: [docs/architecture/backend.md](docs/architecture/backend.md) ([A
 ### Documentation
 - Every doc in `docs/` follows the frontmatter conventions in [docs/README.md](docs/README.md).
 - Record significant decisions as ADRs in `docs/adr/` using [docs/templates/adr.md](docs/templates/adr.md).
-- Update docs in the same change as the behavior they describe.
+- Update docs in the same change as the behavior they describe. New docs go into `nav` in `mkdocs.yml`
+  and get an entry in [docs/log.md](docs/log.md); `make docs` must pass (it fails on broken `[[wiki-links]]`).

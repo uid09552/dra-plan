@@ -10,6 +10,16 @@ method follows **NIST SP 800-34 Rev. 1** and **BSI-Standard 200-4** (with IT-Gru
 > (`--dev-mode`); Keycloak and an API gateway are prepared but the backend does not validate tokens
 > yet. Do not expose it on a shared network or use it for production DR plans yet.
 
+## Screenshots
+
+| Cockpit | Scenario mind map | Dependency map |
+|---|---|---|
+| [![Cockpit with readiness score, critical gaps and next actions](docs/assets/screenshots/cockpit.png)](docs/assets/screenshots/cockpit.png) | [![Scenario mind map: service, categories, scenarios and sub-scenarios](docs/assets/screenshots/scenario-mindmap.png)](docs/assets/screenshots/scenario-mindmap.png) | [![Dependency map in restore order with an RTO conflict and a single point of failure](docs/assets/screenshots/dependencies.png)](docs/assets/screenshots/dependencies.png) |
+| Readiness, critical gaps and next actions across all IT services | Brainstorm scenarios per category, then accept or reject them | Restore order, RTO conflicts and single points of failure |
+
+More screens (guide, risk matrix, measures, compliance, handbook, dark mode) are in the
+[UI tour](docs/guide/ui-tour.md).
+
 ## Features
 
 - **Guided workflow**: 15 steps in 5 phases, grouped into a 7-stage guide with guiding questions,
@@ -53,7 +63,7 @@ api/          OpenAPI contract
 backend/      Rust crate dra-server (src/features/<feature>/{domain,application,infra,api})
 frontend/     Angular app
 deploy/       PostgreSQL init, Keycloak realm, APISIX config
-docs/         Architecture, ADRs, domain model, workflows, requirements
+docs/         Architecture, ADRs, domain model, workflows, requirements, UI tour (MkDocs: mkdocs.yml)
 ```
 
 ## Quick start
@@ -74,6 +84,7 @@ Open <http://localhost:8080>. The containers run in development mode (mocked log
 make run        # PostgreSQL + backend in dev mode on http://127.0.0.1:8090
 make ui         # Angular dev server on http://localhost:4200 (proxies /api and /mcp)
 make check      # formatting, lints, backend and frontend tests, OpenAPI lint
+make docs-serve # documentation site on http://127.0.0.1:8000
 make help       # all targets
 ```
 
@@ -82,7 +93,12 @@ The backend is configured with command-line arguments or `DRA_*` environment var
 
 ## Documentation
 
+The knowledge base in [`docs/`](docs/README.md) is plain Markdown (an OKF bundle) and is also published
+as a MkDocs site: `make docs-serve` for a live preview on <http://127.0.0.1:8000>, `make docs` for a
+strict build into `site/` (needs Python 3).
+
 - [Knowledge base](docs/README.md): vision, architecture, ADRs, domain model, workflows
+- [UI tour](docs/guide/ui-tour.md): the main screens with screenshots
 - [Feature requirements](docs/requirements/README.md) and [feature status](docs/requirements/feature-status.md)
 - [Plan-authoring workflow](docs/workflows/plan-authoring.md) and [recovery execution](docs/workflows/recovery-execution.md)
 - [REST API](docs/architecture/api.md) and [MCP interface](docs/architecture/mcp.md)

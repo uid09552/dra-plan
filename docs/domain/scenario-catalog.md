@@ -14,7 +14,7 @@ Default seed data for workflow steps 4–8 ([[plan-authoring]]). Each tenant can
 
 ## Scenario categories (`scenario.category`)
 
-The 15 categories of the [[README|feature requirements]] (migration `0002` mapped the former
+The 15 categories of the [[requirements/README|feature requirements]] (migration `0002` mapped the former
 `data` → `database`, `dependency` → `supplier`, `security` → `cybersecurity`, `people_facility` → `people`):
 
 | Category | Example scenarios |

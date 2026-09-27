@@ -65,6 +65,7 @@ services:
       APISIX_CLIENT_SECRET: ${APISIX_CLIENT_SECRET:?set APISIX_CLIENT_SECRET in .env}
       DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:?set DEMO_USER_PASSWORD in .env}
       UI_URL: ${UI_URL:-http://localhost:4200}
+      DRA_PUBLIC_URL: ${DRA_PUBLIC_URL:-http://localhost:9080}
     ports:
       - "127.0.0.1:8180:8080"
     volumes:
@@ -94,8 +95,16 @@ services:
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-dra}
       APISIX_CLIENT_ID: ${APISIX_CLIENT_ID}
       APISIX_CLIENT_SECRET: ${APISIX_CLIENT_SECRET}
-      DRA_BACKEND_HOST: ${DRA_BACKEND_HOST:-host.docker.internal}
+      DRA_BACKEND_HOST: ${DRA_BACKEND_HOST:-backend}
       DRA_BACKEND_PORT: ${DRA_BACKEND_PORT:-8090}
+      # UI behind the gateway (default: the `ui` container of profile `app`).
+      DRA_UI_HOST: ${DRA_UI_HOST:-ui}
+      DRA_UI_PORT: ${DRA_UI_PORT:-8080}
+      # Browser login: APISIX is the OIDC client of the realm client ${DRA_CLIENT_ID}.
+      DRA_PUBLIC_URL: ${DRA_PUBLIC_URL:-http://localhost:9080}
+      DRA_CLIENT_ID: ${DRA_CLIENT_ID}
+      DRA_CLIENT_SECRET: ${DRA_CLIENT_SECRET}
+      APISIX_SESSION_SECRET: ${APISIX_SESSION_SECRET:?set APISIX_SESSION_SECRET in .env (at least 32 characters)}
     ports:
       - "127.0.0.1:9080:9080"
     volumes:

@@ -24,6 +24,9 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   const i18n = inject(I18n);
   return next(req).pipe(
     catchError((error: unknown) => {
+      if (error instanceof HttpErrorResponse && error.status === 401 && startLogin()) {
+        return throwError(() => error);
+      }
       const expected =
         error instanceof HttpErrorResponse &&
         (error.status === 422 || (error.status === 404 && req.context.get(EXPECT_NOT_FOUND)));
@@ -39,6 +42,37 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
     }),
   );
 };
+
+const LOGIN_KEY = 'dra.loginStartedAt';
+/** A second 401 within this time means the login did not help (e.g. no gateway): stop redirecting. */
+const LOGIN_LOOP_MS = 30_000;
+
+/**
+ * Starts the login after a 401 by reloading the page: behind the gateway (APISIX) the page request
+ * has no valid session and is redirected to the Keycloak login, which returns to the same URL.
+ * Returns false (show the error instead) when a login was started moments ago, to avoid loops.
+ */
+export function startLogin(
+  storage: Pick<Storage, 'getItem' | 'setItem'> | null = safeSessionStorage(),
+  reload: () => void = () => location.reload(),
+  now = Date.now(),
+): boolean {
+  const last = Number(storage?.getItem(LOGIN_KEY) ?? 0);
+  if (now - last < LOGIN_LOOP_MS) {
+    return false;
+  }
+  storage?.setItem(LOGIN_KEY, String(now));
+  reload();
+  return true;
+}
+
+function safeSessionStorage(): Storage | null {
+  try {
+    return sessionStorage;
+  } catch {
+    return null;
+  }
+}
 
 /** Extracts issue messages from a 422 response. */
 export function issuesOf(error: unknown): string[] {

@@ -73,10 +73,11 @@
       <span>{{ 'user.settings' | t }}</span>
     </a>
     <mat-divider />
-    <button mat-menu-item disabled>
+    <!-- Handled by the gateway (APISIX): ends the session and the Keycloak login. -->
+    <a mat-menu-item href="/logout">
       <mat-icon>logout</mat-icon>
       <span>{{ 'user.logout' | t }}</span>
-    </button>
+    </a>
   </mat-menu>
 </mat-toolbar>
 

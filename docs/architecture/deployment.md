@@ -53,3 +53,12 @@ make down          # stop everything (incl. app containers), keep data
 The backend container connects as role `dra` (not a superuser, so row-level security applies). APISIX
 still routes to the backend on the host; set `DRA_BACKEND_HOST=backend` in `.env` to route it to the
 container ([[identity-gateway]]).
+
+## Troubleshooting
+
+- **Keycloak exits with `password authentication failed for user "keycloak"`** (APISIX then reports
+  the Keycloak container as unhealthy): PostgreSQL runs its init scripts only when the volume is created,
+  so a later change of `KEYCLOAK_DB_PASSWORD` in `.env` never reached the database. `make up` / `make app-up`
+  run `make db-sync` first, which applies the current value (idempotent `deploy/postgres/10-keycloak.sh`).
+  With plain `docker compose up`, run `make db-sync` once before.
+- Use Docker Compose v2 (`docker compose`, as in the Makefile). The legacy `docker-compose` 1.x is end of life.

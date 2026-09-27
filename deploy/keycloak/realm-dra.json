@@ -43,9 +43,9 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
-      "redirectUris": ["${UI_URL}/*"],
-      "webOrigins": ["${UI_URL}"],
-      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "${UI_URL}/*" },
+      "redirectUris": ["${UI_URL}/*", "${DRA_PUBLIC_URL}/*"],
+      "webOrigins": ["${UI_URL}", "${DRA_PUBLIC_URL}"],
+      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "${UI_URL}/*##${DRA_PUBLIC_URL}/*" },
       "defaultClientScopes": ["basic", "profile", "email", "roles", "web-origins", "acr", "organization"],
       "optionalClientScopes": ["offline_access"],
       "protocolMappers": [
