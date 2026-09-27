@@ -85,6 +85,8 @@ The full conventions live in [CLAUDE.md](CLAUDE.md) and in [docs/](docs/README.m
 - Docs in `docs/` use the frontmatter described in [docs/README.md](docs/README.md).
 - Record significant decisions as ADRs in `docs/adr/` using [docs/templates/adr.md](docs/templates/adr.md).
 - Keep [docs/requirements/feature-status.md](docs/requirements/feature-status.md) current.
+- Check the documentation site with `make docs` (strict build: unknown wiki-links fail) or preview it
+  with `make docs-serve`. Pull requests that touch `docs/` run the same build in CI.
 
 ## Reporting security issues
 

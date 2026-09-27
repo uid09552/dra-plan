@@ -95,6 +95,9 @@ The backend is configured with command-line arguments or `DRA_*` environment var
 
 ## Documentation
 
+The documentation site is published to GitHub Pages at <https://uid09552.github.io/dra-plan/>
+(built from `docs/` by the [Docs workflow](.github/workflows/docs.yml); preview locally with `make docs-serve`).
+
 The knowledge base in [`docs/`](docs/README.md) is plain Markdown (an OKF bundle) and is also published
 as a MkDocs site: `make docs-serve` for a live preview on <http://127.0.0.1:8000>, `make docs` for a
 strict build into `site/` (needs Python 3).
