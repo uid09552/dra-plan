@@ -1,2 +1,5 @@
 .env
 frontend/dist/
+.venv-docs
+.venv-docs/*site/
+.venv-docs/
