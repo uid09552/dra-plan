@@ -6,15 +6,27 @@ import {
   provideBrowserGlobalErrorListeners,
 } from '@angular/core';
 import { MatIconRegistry } from '@angular/material/icon';
-import { provideRouter, withComponentInputBinding } from '@angular/router';
+import {
+  provideRouter,
+  withComponentInputBinding,
+  withNavigationErrorHandler,
+} from '@angular/router';
 
 import { routes } from './app.routes';
-import { errorInterceptor, languageInterceptor } from './core/http/interceptors';
+import { errorInterceptor, languageInterceptor, startLogin } from './core/http/interceptors';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
-    provideRouter(routes, withComponentInputBinding()),
+    provideRouter(
+      routes,
+      withComponentInputBinding(),
+      // A lazy page chunk failed to load (session expired behind the gateway, or a new deployment
+      // replaced the chunks): reload once, which re-authenticates and loads the current version.
+      withNavigationErrorHandler(() => {
+        startLogin();
+      }),
+    ),
     provideHttpClient(withFetch(), withInterceptors([languageInterceptor, errorInterceptor])),
     // Self-hosted Material Symbols (works offline during a disaster).
     provideAppInitializer(() => {

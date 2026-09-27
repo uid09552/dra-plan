@@ -72,6 +72,15 @@ routes:
         set_userinfo_header: false
         set_id_token_header: false
 
+  # Static UI assets are public: they contain no data and are the same for every user. Protecting
+  # them would turn lazy-loaded chunks into login redirects after the session expired.
+  - id: dra-ui-assets
+    uri: /*
+    vars:
+      - ["uri", "~~", "\\.(js|mjs|css|map|woff2?|ttf|otf|ico|svg|png|jpe?g|webp|webmanifest|txt)$"]
+    priority: -5
+    upstream_id: dra-ui
+
   # UI (everything else): without a session → redirect to the Keycloak login page and back.
   # Also handles /oidc/callback (login) and /logout (ends the Keycloak session too).
   - id: dra-ui
