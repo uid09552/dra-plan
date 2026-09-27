@@ -25,9 +25,12 @@ A workflow-driven tool that:
 - **Auditors:** check plan completeness and test evidence.
 
 ## In scope (initial)
-- DR plan authoring for individual IT services
+- Multi-tenant: tenant → IT service → microservice → DR items ([[dr-plan-model]])
+- A guided 15-step authoring workflow based on NIST SP 800-34 and BSI 200-4 ([[plan-authoring]], [[standards-mapping]])
+- Business impact analysis, and scenario brainstorming, consolidation and selection
 - Service dependency capture
-- RTO/RPO definition and consistency checks
+- RTO/RPO definition, consistency checks and gap checks (Soll-Ist)
+- DR test planning and result measurement (target vs. achieved RTO/RPO)
 - Guided recovery runbook execution with progress tracking and a timeline
 - Plan export (for example Markdown/PDF) for offline availability
 

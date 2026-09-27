@@ -1,0 +1,18 @@
+# APISIX in standalone mode: routes are declared in apisix.yaml (no etcd, no Admin API).
+deployment:
+  role: data_plane
+  role_data_plane:
+    config_provider: yaml
+
+apisix:
+  node_listen: 9080
+  enable_ipv6: false
+
+nginx_config:
+  # Environment variables used in apisix.yaml via ${{VAR}}.
+  envs:
+    - KEYCLOAK_REALM
+    - APISIX_CLIENT_ID
+    - APISIX_CLIENT_SECRET
+    - DRA_BACKEND_HOST
+    - DRA_BACKEND_PORT

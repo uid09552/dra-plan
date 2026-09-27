@@ -1,0 +1,39 @@
+# Declarative APISIX configuration (standalone mode). ${{VAR}} values come from the container
+# environment (see docker-compose.yml / .env).
+upstreams:
+  - id: dra-backend
+    type: roundrobin
+    nodes:
+      - host: "${{DRA_BACKEND_HOST}}"
+        port: ${{DRA_BACKEND_PORT}}
+        weight: 1
+
+routes:
+  # Liveness is public.
+  - id: dra-health
+    uri: /api/v1/health
+    methods: [GET]
+    priority: 10
+    upstream_id: dra-backend
+
+  # REST API and MCP: a valid Keycloak access token (realm ${KEYCLOAK_REALM}) is required.
+  - id: dra-api
+    uris: ["/api/*", "/mcp"]
+    upstream_id: dra-backend
+    plugins:
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      openid-connect:
+        client_id: "${{APISIX_CLIENT_ID}}"
+        client_secret: "${{APISIX_CLIENT_SECRET}}"
+        discovery: "http://keycloak:8080/realms/${{KEYCLOAK_REALM}}/.well-known/openid-configuration"
+        realm: "${{KEYCLOAK_REALM}}"
+        # API mode: no login redirect, only validate bearer tokens (signature via JWKS).
+        bearer_only: true
+        use_jwks: true
+        # Forward the token to the backend (it reads the `tenant` claim).
+        set_access_token_header: true
+        access_token_in_authorization_header: true
+        set_userinfo_header: false
+#END

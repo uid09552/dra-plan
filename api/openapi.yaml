@@ -1,0 +1,4030 @@
+openapi: 3.1.0
+info:
+  title: dra-workflow API
+  version: 0.1.0
+  summary: Workflow-driven, AI-assisted IT service disaster recovery planning and execution.
+  description: |
+    REST API of the dra-workflow backend (Rust). It implements the data model in
+    `docs/domain/dr-plan-model.md` and the workflows in `docs/workflows/`.
+
+    **Hierarchy:** Tenant → IT service → microservice → DR items.
+
+    **Methodology:** NIST SP 800-34 Rev. 1 and BSI-Standard 200-4 (see `docs/domain/standards-mapping.md`).
+
+    ## Conventions
+    - **Tenant from the token:** the tenant is **not** part of the path. The backend reads it from the
+      `tenant_id` claim of the JWT access token and scopes every query to it. A token without a valid
+      tenant claim, or for a tenant the user is not a member of, gets `403`. Ids belonging to another
+      tenant return `404`. Only `GET/POST /tenants` (membership list, tenant creation) are tenant-independent.
+    - **Collections** are nested under their parent (for example `/services/{serviceId}/microservices`).
+      **Single items** are addressed flat by id (for example `/microservices/{microserviceId}`).
+    - IDs are UUIDs. Durations are **integer minutes**. Timestamps are RFC 3339 UTC.
+    - Updates use `PATCH` with `application/merge-patch+json` (RFC 7396).
+    - Optimistic concurrency: every resource has a `version`. Reads return an `ETag`, and `PATCH`/`DELETE`
+      accept `If-Match`. A stale version returns `412`.
+    - Lists use cursor pagination (`cursor`, `limit`) and return `{ items, nextCursor }`.
+    - Errors are `application/problem+json` (RFC 9457). Validation and workflow-gate failures return `422`
+      with `issues`.
+    - **"Mitigations"** are modeled as *recovery strategies* (how a microservice recovers from a scenario)
+      plus *runbooks* containing ordered *runbook steps* (phases Activation → Recovery → Reconstitution).
+    - AI output is always advisory. It is stored as an `AiSuggestion` and only applied after an explicit
+      decision.
+    - Besides this REST API, the same use cases are available to AI agents through the MCP endpoint
+      `POST /mcp` (Streamable HTTP, JSON-RPC 2.0, use-case based tools; see docs/architecture/mcp.md).
+servers:
+  - url: /api/v1
+    description: Relative to the deployment host
+security:
+  - bearerAuth: []
+
+tags:
+  - name: System
+    description: Health and operational endpoints.
+  - name: Tenants
+    description: Tenants and tenant settings (NIST step 1 policy / BSI Initiierung).
+  - name: Directory
+    description: Tenant members, persons (contacts) and the DR role catalog (BSI BAO).
+  - name: Catalog
+    description: Seed data covering scenario templates, strategy types, test types and workflow steps.
+  - name: IT Services
+    description: Business-facing IT services (workflow step 1). They own the BIA, scenarios and plan versions.
+  - name: Business Impact
+    description: Business impact analysis (NIST step 2 / BSI BIA). Covers MTPD, RTO, RPO and minimum operating level.
+  - name: Scenarios
+    description: Brainstorm → consolidate → select disaster scenarios (BSI risk analysis).
+  - name: Microservices
+    description: >-
+      Components of an IT service (called "components" in the UI; the API keeps the name microservice).
+      They own the DR items. Components are optional for the user: every service has one default
+      component (`isDefault`) that stands for the whole service and is created with it.
+  - name: Dependencies
+    description: Upstream and downstream dependencies (workflow step 2, NIST resource requirements).
+  - name: Recovery Objectives
+    description: RTO, RPO and MTTR per microservice and scenario (workflow step 7).
+  - name: Recovery Strategies
+    description: Mitigations per microservice and scenario, including the gap check (BSI Soll-Ist-Vergleich).
+  - name: Data Protection
+    description: Backup and replication configuration (BSI CON.3).
+  - name: Runbooks
+    description: Executable mitigation steps (NIST Activation / Recovery / Reconstitution).
+  - name: Roles & Communication
+    description: Role assignments with deputies, and communication rules (workflow steps 10–11).
+  - name: Workflow
+    description: Guided 15-step authoring workflow with gates.
+  - name: Plan Versions
+    description: Immutable, reviewable plan snapshots and export (workflow step 12).
+  - name: DR Tests
+    description: Tests and exercises (NIST step 6 / BSI Tests und Übungen).
+  - name: Action Items
+    description: Improvement actions from tests, runs, reviews and gap checks (workflow step 15).
+  - name: AI Assistance
+    description: Advisory AI suggestions that must be explicitly accepted before they reach the plan.
+  - name: Recovery Runs
+    description: Executing an approved plan during a disaster or a test.
+  - name: Readiness
+    description: 'DR readiness dashboard ("How ready are we?") and compliance mapping (requirement, what to do, evidence, status).'
+  - name: Audit
+    description: Append-only audit log.
+
+paths:
+  # ───────────────────────────── System ─────────────────────────────
+  /health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: Liveness / readiness
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: Service is not ready (for example the database is unreachable)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+  # ───────────────────────────── Tenants ─────────────────────────────
+  /tenants:
+    get:
+      tags: [Tenants]
+      operationId: listTenants
+      summary: List tenants the caller is a member of (for tenant switching)
+      description: Based on the user identity, not the tenant claim. To switch tenants, the client obtains a token for the other tenant from the identity provider.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Tenants
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Tenants]
+      operationId: createTenant
+      summary: Create a tenant
+      description: |
+        The caller becomes the tenant `admin`. The default DR roles and settings are seeded.
+        To work in the new tenant, the client must obtain a token that carries its `tenant_id` claim.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TenantCreate' }
+      responses:
+        '201': { $ref: '#/components/responses/TenantCreated' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /tenant:
+    get:
+      tags: [Tenants]
+      operationId: getCurrentTenant
+      summary: Get the current tenant (from the token)
+      responses:
+        '200': { $ref: '#/components/responses/TenantOk' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Tenants]
+      operationId: updateCurrentTenant
+      summary: Update the current tenant and its settings (admin)
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/TenantUpdate' }
+      responses:
+        '200': { $ref: '#/components/responses/TenantOk' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Tenants]
+      operationId: deleteCurrentTenant
+      summary: Delete the current tenant and all its data (admin)
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Directory ─────────────────────────────
+  /members:
+    get:
+      tags: [Directory]
+      operationId: listMembers
+      summary: List tenant members (application users)
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Members
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Directory]
+      operationId: addMember
+      summary: Add a member with a tenant role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MemberCreate' }
+      responses:
+        '201':
+          description: Member added
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /members/{memberId}:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    patch:
+      tags: [Directory]
+      operationId: updateMember
+      summary: Change a member's tenant role
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/MemberUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Directory]
+      operationId: removeMember
+      summary: Remove a member
+      responses:
+        '204': { description: Removed }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /persons:
+    get:
+      tags: [Directory]
+      operationId: listPersons
+      summary: List persons (contact directory)
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: q
+          in: query
+          description: Search by name, email or team
+          schema: { type: string }
+      responses:
+        '200':
+          description: Persons
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Directory]
+      operationId: createPerson
+      summary: Create a person
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PersonCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Person' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /persons/{personId}:
+    parameters:
+      - $ref: '#/components/parameters/PersonId'
+    get:
+      tags: [Directory]
+      operationId: getPerson
+      summary: Get a person
+      responses:
+        '200':
+          description: Person
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Person' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Directory]
+      operationId: updatePerson
+      summary: Update a person
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/PersonFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Person' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Directory]
+      operationId: deletePerson
+      summary: Delete a person
+      description: Fails with `409` while the person is still assigned to a role or owns open action items.
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /roles:
+    get:
+      tags: [Directory]
+      operationId: listRoles
+      summary: List the DR role catalog (Incident Commander, DBA, and others)
+      responses:
+        '200':
+          description: Roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Role' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Directory]
+      operationId: createRole
+      summary: Create a custom DR role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /roles/{roleId}:
+    parameters:
+      - $ref: '#/components/parameters/RoleId'
+    patch:
+      tags: [Directory]
+      operationId: updateRole
+      summary: Update a role
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/RoleFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Directory]
+      operationId: deleteRole
+      summary: Delete a custom role
+      description: Fails with `409` while the role is referenced by assignments or runbook steps.
+      responses:
+        '204': { description: Deleted }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Catalog ─────────────────────────────
+  /catalog:
+    get:
+      tags: [Catalog]
+      operationId: getCatalog
+      summary: Seed data for the workflow (see docs/domain/scenario-catalog.md)
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Catalog
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Catalog' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── IT Services ─────────────────────────────
+  /services:
+    get:
+      tags: [IT Services]
+      operationId: listServices
+      summary: List IT services
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: lifecycleStatus
+          in: query
+          schema: { $ref: '#/components/schemas/ServiceLifecycleStatus' }
+        - name: reviewOverdue
+          in: query
+          description: Only services whose approved plan is past `nextReviewDue`
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: IT services
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ItServicePage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [IT Services]
+      operationId: createService
+      summary: Create an IT service (workflow step 1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ItServiceCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ItService' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /services/{serviceId}:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [IT Services]
+      operationId: getService
+      summary: Get an IT service
+      responses:
+        '200':
+          description: IT service
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ItService' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [IT Services]
+      operationId: updateService
+      summary: Update an IT service
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/ItServiceFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ItService' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [IT Services]
+      operationId: deleteService
+      summary: Delete an IT service
+      description: Fails with `409` while a recovery run is active. Approved plan versions are kept for audit.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /services/{serviceId}/dependency-graph:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [IT Services, Dependencies]
+      operationId: getDependencyGraph
+      summary: Dependency graph with RTO conflicts and a suggested restore order
+      responses:
+        '200':
+          description: Graph
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DependencyGraph' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /services/{serviceId}/validation:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [IT Services, Workflow]
+      operationId: validateService
+      summary: Run all integrity rules and gap checks for the service
+      description: Evaluates the integrity rules in `docs/domain/dr-plan-model.md` (section 4).
+      responses:
+        '200':
+          description: Validation report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationReport' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Business Impact ─────────────────────────────
+  /services/{serviceId}/bia:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Business Impact]
+      operationId: getBia
+      summary: Get the business impact analysis (workflow step 3)
+      responses:
+        '200':
+          description: BIA
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BusinessImpactAnalysis' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    put:
+      tags: [Business Impact]
+      operationId: putBia
+      summary: Create or replace the BIA
+      description: Replaces all impact ratings. Validates RTO ≤ MTPD.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BusinessImpactAnalysisInput' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BusinessImpactAnalysis' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Scenarios ─────────────────────────────
+  /services/{serviceId}/scenarios:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Scenarios]
+      operationId: listScenarios
+      summary: List scenarios of a service
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ScenarioStatus' }
+        - name: category
+          in: query
+          schema: { $ref: '#/components/schemas/ScenarioCategory' }
+        - name: drRequired
+          in: query
+          schema: { $ref: '#/components/schemas/DrRequired' }
+      responses:
+        '200':
+          description: Scenarios
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Scenario' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Scenarios]
+      operationId: createScenario
+      summary: Add a brainstormed scenario (workflow step 4)
+      description: Starts in status `brainstormed`. It can be created from a catalog template.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScenarioCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scenario' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /services/{serviceId}/scenario-suggestions:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Scenarios, Catalog]
+      operationId: suggestScenarios
+      summary: Catalog scenarios relevant for the service that are not captured yet (brainstorming help)
+      description: >-
+        Rule-based: derived from data stores, cloud hosting, external and identity-provider dependencies and the
+        protection requirement. Accept a suggestion by creating a scenario with `catalogTemplateId`.
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Suggestions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ScenarioSuggestion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /scenarios/{scenarioId}:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioId'
+    get:
+      tags: [Scenarios]
+      operationId: getScenario
+      summary: Get a scenario
+      responses:
+        '200':
+          description: Scenario
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scenario' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Scenarios]
+      operationId: updateScenario
+      summary: Edit a scenario (text, category, affected microservices)
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/ScenarioFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scenario' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Scenarios]
+      operationId: deleteScenario
+      summary: Delete a scenario
+      description: Fails with `409` while objectives, strategies or runbooks reference it.
+      responses:
+        '204': { description: Deleted }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /scenarios/{scenarioId}/merge:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioId'
+    post:
+      tags: [Scenarios]
+      operationId: mergeScenarios
+      summary: Consolidate similar scenarios into this one (workflow step 5)
+      description: The source scenarios get status `merged` and `mergedIntoId` set to this scenario.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScenarioMergeRequest' }
+      responses:
+        '200':
+          description: Target scenario after the merge
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scenario' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /scenarios/{scenarioId}/decision:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioId'
+    post:
+      tags: [Scenarios]
+      operationId: decideScenario
+      summary: Select or reject a scenario with a risk rating and rationale (workflow step 6)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScenarioDecision' }
+      responses:
+        '200':
+          description: Scenario after the decision
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scenario' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Microservices ─────────────────────────────
+  /services/{serviceId}/microservices:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Microservices]
+      operationId: listMicroservices
+      summary: List the microservices of an IT service
+      responses:
+        '200':
+          description: Microservices
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Microservice' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Microservices]
+      operationId: createMicroservice
+      summary: Create a microservice under an IT service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MicroserviceCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Microservice' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /microservices/{microserviceId}:
+    parameters:
+      - $ref: '#/components/parameters/MicroserviceId'
+    get:
+      tags: [Microservices]
+      operationId: getMicroservice
+      summary: Get a microservice
+      responses:
+        '200':
+          description: Microservice
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Microservice' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Microservices]
+      operationId: updateMicroservice
+      summary: Update a microservice
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/MicroserviceFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Microservice' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Microservices]
+      operationId: deleteMicroservice
+      summary: Delete a component (microservice) and its DR items
+      description: The default component (`isDefault`) cannot be deleted (409).
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Dependencies ─────────────────────────────
+  /microservices/{microserviceId}/dependencies:
+    parameters:
+      - $ref: '#/components/parameters/MicroserviceId'
+    get:
+      tags: [Dependencies]
+      operationId: listDependencies
+      summary: List the dependencies of a microservice (workflow step 2)
+      responses:
+        '200':
+          description: Dependencies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Dependency' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Dependencies]
+      operationId: createDependency
+      summary: Add a dependency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DependencyCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dependency' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /dependencies/{dependencyId}:
+    parameters:
+      - $ref: '#/components/parameters/DependencyId'
+    patch:
+      tags: [Dependencies]
+      operationId: updateDependency
+      summary: Update a dependency
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/DependencyFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dependency' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Dependencies]
+      operationId: deleteDependency
+      summary: Delete a dependency
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Recovery Objectives ─────────────────────────────
+  /microservices/{microserviceId}/recovery-objectives:
+    parameters:
+      - $ref: '#/components/parameters/MicroserviceId'
+    get:
+      tags: [Recovery Objectives]
+      operationId: listRecoveryObjectives
+      summary: List RTO/RPO objectives of a microservice (workflow step 7)
+      responses:
+        '200':
+          description: Objectives
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RecoveryObjective' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Recovery Objectives]
+      operationId: createRecoveryObjective
+      summary: Define an objective (default, or per scenario)
+      description: Validated against the service BIA (RTO ≤ service RTO ≤ MTPD, RPO ≤ service RPO).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecoveryObjectiveCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryObjective' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /recovery-objectives/{objectiveId}:
+    parameters:
+      - $ref: '#/components/parameters/ObjectiveId'
+    patch:
+      tags: [Recovery Objectives]
+      operationId: updateRecoveryObjective
+      summary: Update an objective
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/RecoveryObjectiveFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryObjective' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Recovery Objectives]
+      operationId: deleteRecoveryObjective
+      summary: Delete an objective
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Recovery Strategies (Mitigations) ─────────────────────────────
+  /services/{serviceId}/recovery-strategies:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Recovery Strategies]
+      operationId: listServiceRecoveryStrategies
+      summary: All measures (recovery strategies) of an IT service, across its components
+      responses:
+        '200':
+          description: Measures with gap check
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RecoveryStrategy' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /microservices/{microserviceId}/recovery-strategies:
+    parameters:
+      - $ref: '#/components/parameters/MicroserviceId'
+    get:
+      tags: [Recovery Strategies]
+      operationId: listRecoveryStrategies
+      summary: List mitigation / recovery strategy candidates (workflow step 8)
+      parameters:
+        - name: scenarioId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Strategies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RecoveryStrategy' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Recovery Strategies]
+      operationId: createRecoveryStrategy
+      summary: Add a mitigation / recovery strategy candidate for a scenario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecoveryStrategyCreate' }
+      responses:
+        '201':
+          description: Created. The response includes the gap check result.
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryStrategy' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /recovery-strategies/{strategyId}:
+    parameters:
+      - $ref: '#/components/parameters/StrategyId'
+    get:
+      tags: [Recovery Strategies]
+      operationId: getRecoveryStrategy
+      summary: Get a strategy
+      responses:
+        '200':
+          description: Strategy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryStrategy' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Recovery Strategies]
+      operationId: updateRecoveryStrategy
+      summary: Update a strategy
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/RecoveryStrategyFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryStrategy' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Recovery Strategies]
+      operationId: deleteRecoveryStrategy
+      summary: Delete a strategy
+      responses:
+        '204': { description: Deleted }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /recovery-strategies/{strategyId}/select:
+    parameters:
+      - $ref: '#/components/parameters/StrategyId'
+    post:
+      tags: [Recovery Strategies]
+      operationId: selectRecoveryStrategy
+      summary: Select this strategy for its microservice/scenario pair
+      description: |
+        Deselects any other strategy for the same microservice and scenario. If the gap check shows a gap
+        (BSI Soll-Ist-Vergleich), `acceptGap` must be true and an action item is created.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StrategySelection' }
+      responses:
+        '200':
+          description: Selected
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryStrategy' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Data Protection ─────────────────────────────
+  /microservices/{microserviceId}/data-protection:
+    parameters:
+      - $ref: '#/components/parameters/MicroserviceId'
+    get:
+      tags: [Data Protection]
+      operationId: listDataProtection
+      summary: List backup and replication settings of a microservice
+      responses:
+        '200':
+          description: Data protection entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DataProtection' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Data Protection]
+      operationId: createDataProtection
+      summary: Add a data protection entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DataProtectionCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataProtection' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /data-protection/{dataProtectionId}:
+    parameters:
+      - $ref: '#/components/parameters/DataProtectionId'
+    patch:
+      tags: [Data Protection]
+      operationId: updateDataProtection
+      summary: Update a data protection entry (for example record a restore test)
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/DataProtectionFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataProtection' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Data Protection]
+      operationId: deleteDataProtection
+      summary: Delete a data protection entry
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Runbooks & Steps ─────────────────────────────
+  /services/{serviceId}/runbooks:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Runbooks]
+      operationId: listServiceRunbooks
+      summary: List all runbooks of a service (for example every mitigation for one scenario)
+      parameters:
+        - name: scenarioId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Runbooks ordered by the microservices' restore order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Runbook' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /microservices/{microserviceId}/runbooks:
+    parameters:
+      - $ref: '#/components/parameters/MicroserviceId'
+    get:
+      tags: [Runbooks]
+      operationId: listRunbooks
+      summary: List the runbooks of a microservice (workflow step 9)
+      parameters:
+        - name: scenarioId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Runbooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Runbook' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Runbooks]
+      operationId: createRunbook
+      summary: Create a runbook for a scenario and strategy
+      description: Steps can be supplied inline to create the runbook with its mitigation steps in one call.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunbookCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunbookDetail' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /runbooks/{runbookId}:
+    parameters:
+      - $ref: '#/components/parameters/RunbookId'
+    get:
+      tags: [Runbooks]
+      operationId: getRunbook
+      summary: Get a runbook with its steps
+      responses:
+        '200':
+          description: Runbook
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunbookDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Runbooks]
+      operationId: updateRunbook
+      summary: Update runbook metadata
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/RunbookFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Runbook' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Runbooks]
+      operationId: deleteRunbook
+      summary: Delete a runbook and its steps
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /runbooks/{runbookId}/steps:
+    parameters:
+      - $ref: '#/components/parameters/RunbookId'
+    get:
+      tags: [Runbooks]
+      operationId: listRunbookSteps
+      summary: List steps in order
+      responses:
+        '200':
+          description: Steps
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RunbookStep' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Runbooks]
+      operationId: createRunbookStep
+      summary: Add a mitigation step
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunbookStepCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunbookStep' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /runbooks/{runbookId}/steps/order:
+    parameters:
+      - $ref: '#/components/parameters/RunbookId'
+    put:
+      tags: [Runbooks]
+      operationId: reorderRunbookSteps
+      summary: Reorder steps
+      description: Must contain every step id exactly once. It is rejected if the order violates `dependsOnStepIds`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StepOrder' }
+      responses:
+        '200':
+          description: Steps in the new order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RunbookStep' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /runbook-steps/{stepId}:
+    parameters:
+      - $ref: '#/components/parameters/StepId'
+    patch:
+      tags: [Runbooks]
+      operationId: updateRunbookStep
+      summary: Update a step
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/RunbookStepFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunbookStep' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Runbooks]
+      operationId: deleteRunbookStep
+      summary: Delete a step
+      responses:
+        '204': { description: Deleted }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Roles & Communication ─────────────────────────────
+  /services/{serviceId}/role-assignments:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Roles & Communication]
+      operationId: listRoleAssignments
+      summary: List role assignments for a service (workflow step 10, BSI BAO)
+      responses:
+        '200':
+          description: Assignments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RoleAssignment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Roles & Communication]
+      operationId: createRoleAssignment
+      summary: Assign a person to a role (primary or deputy)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleAssignmentCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoleAssignment' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /role-assignments/{assignmentId}:
+    parameters:
+      - $ref: '#/components/parameters/AssignmentId'
+    patch:
+      tags: [Roles & Communication]
+      operationId: updateRoleAssignment
+      summary: Update an assignment
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/RoleAssignmentFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoleAssignment' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Roles & Communication]
+      operationId: deleteRoleAssignment
+      summary: Remove an assignment
+      responses:
+        '204': { description: Removed }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /services/{serviceId}/communication-rules:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Roles & Communication]
+      operationId: listCommunicationRules
+      summary: List communication rules (workflow step 11)
+      responses:
+        '200':
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CommunicationRule' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Roles & Communication]
+      operationId: createCommunicationRule
+      summary: Create a communication rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommunicationRuleCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommunicationRule' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /communication-rules/{ruleId}:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+    patch:
+      tags: [Roles & Communication]
+      operationId: updateCommunicationRule
+      summary: Update a communication rule
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/CommunicationRuleFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommunicationRule' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Roles & Communication]
+      operationId: deleteCommunicationRule
+      summary: Delete a communication rule
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Workflow ─────────────────────────────
+  /services/{serviceId}/workflow:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Workflow]
+      operationId: getWorkflow
+      summary: Workflow progress for all 15 steps, including current gate issues
+      responses:
+        '200':
+          description: Workflow state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkflowState' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /services/{serviceId}/workflow/steps/{stepKey}/complete:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+      - $ref: '#/components/parameters/StepKey'
+    post:
+      tags: [Workflow]
+      operationId: completeWorkflowStep
+      summary: Mark a step complete. The step's gate is evaluated.
+      description: |
+        Returns `422` with the blocking issues if the gate fails. For `select_scenarios` (the key gate)
+        the caller must be the service's business owner or a tenant `reviewer`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StepCompletion' }
+      responses:
+        '200':
+          description: Step completed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkflowStep' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /services/{serviceId}/workflow/steps/{stepKey}/reopen:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+      - $ref: '#/components/parameters/StepKey'
+    post:
+      tags: [Workflow]
+      operationId: reopenWorkflowStep
+      summary: Reopen a completed step
+      description: Downstream steps that depend on it are set to `needs_review`.
+      responses:
+        '200':
+          description: Updated workflow
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkflowState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Plan Versions ─────────────────────────────
+  /services/{serviceId}/plan-versions:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Plan Versions]
+      operationId: listPlanVersions
+      summary: List plan versions (newest first)
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/PlanStatus' }
+      responses:
+        '200':
+          description: Plan versions (without snapshot)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PlanVersionSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Plan Versions]
+      operationId: submitPlanVersion
+      summary: Snapshot the current service subtree and submit it for review (workflow step 12)
+      description: Fails with `422` if any workflow gate from steps 1–11 has blocking issues.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlanSubmission' }
+      responses:
+        '201':
+          description: Plan version in status `in_review`
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanVersion' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /services/{serviceId}/handbook:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Plan Versions]
+      operationId: getDraftHandbook
+      summary: Live preview of the emergency handbook from the current working data (draft, not approved)
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Markdown handbook marked as DRAFT
+          content:
+            text/markdown:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /plan-versions/{planVersionId}:
+    parameters:
+      - $ref: '#/components/parameters/PlanVersionId'
+    get:
+      tags: [Plan Versions]
+      operationId: getPlanVersion
+      summary: Get a plan version including its immutable snapshot
+      responses:
+        '200':
+          description: Plan version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /plan-versions/{planVersionId}/approve:
+    parameters:
+      - $ref: '#/components/parameters/PlanVersionId'
+    post:
+      tags: [Plan Versions]
+      operationId: approvePlanVersion
+      summary: Approve (reviewer only). Retires the previously approved version.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlanApproval' }
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanVersion' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /plan-versions/{planVersionId}/reject:
+    parameters:
+      - $ref: '#/components/parameters/PlanVersionId'
+    post:
+      tags: [Plan Versions]
+      operationId: rejectPlanVersion
+      summary: Reject a version in review and return it to draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlanRejection' }
+      responses:
+        '200':
+          description: Rejected
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanVersion' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /plan-versions/{planVersionId}/export:
+    parameters:
+      - $ref: '#/components/parameters/PlanVersionId'
+    get:
+      tags: [Plan Versions]
+      operationId: exportPlanVersion
+      summary: Export as a standalone document for offline or crisis use (emergency handbook)
+      description: |
+        `markdown` and `json` are implemented; `pdf` returns `501` for now. The same export is available offline
+        through the CLI: `dra-server export --tenant <slug> --plan-version <id>`.
+      parameters:
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [markdown, pdf, json]
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Exported plan
+          content:
+            text/markdown:
+              schema: { type: string }
+            application/pdf:
+              schema: { type: string, contentEncoding: binary }
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── DR Tests ─────────────────────────────
+  /services/{serviceId}/dr-tests:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [DR Tests]
+      operationId: listDrTests
+      summary: List DR tests and exercises (workflow step 13)
+      responses:
+        '200':
+          description: Tests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DrTest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [DR Tests]
+      operationId: createDrTest
+      summary: Plan a DR test
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DrTestCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DrTest' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /dr-tests/{drTestId}:
+    parameters:
+      - $ref: '#/components/parameters/DrTestId'
+    get:
+      tags: [DR Tests]
+      operationId: getDrTest
+      summary: Get a DR test
+      responses:
+        '200':
+          description: Test
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DrTest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [DR Tests]
+      operationId: updateDrTest
+      summary: Update a test (execution date, outcome, report)
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/DrTestFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DrTest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [DR Tests]
+      operationId: deleteDrTest
+      summary: Delete a planned (not executed) test
+      responses:
+        '204': { description: Deleted }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /dr-tests/{drTestId}/results:
+    parameters:
+      - $ref: '#/components/parameters/DrTestId'
+    get:
+      tags: [DR Tests]
+      operationId: getDrTestResults
+      summary: Achieved vs. target RTO/RPO per microservice (workflow step 14)
+      responses:
+        '200':
+          description: Results
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DrTestResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    put:
+      tags: [DR Tests]
+      operationId: putDrTestResults
+      summary: Record measured results
+      description: Targets and `passed` are computed from the objectives of the plan version that was tested.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: '#/components/schemas/DrTestResultInput' }
+      responses:
+        '200':
+          description: Saved results
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DrTestResult' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Action Items ─────────────────────────────
+  /services/{serviceId}/action-items:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Action Items]
+      operationId: listActionItems
+      summary: List improvement actions (workflow step 15)
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ActionItemStatus' }
+        - name: source
+          in: query
+          schema: { $ref: '#/components/schemas/ActionItemSource' }
+      responses:
+        '200':
+          description: Action items
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActionItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Action Items]
+      operationId: createActionItem
+      summary: Create an action item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActionItemCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActionItem' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /action-items/{actionItemId}:
+    parameters:
+      - $ref: '#/components/parameters/ActionItemId'
+    patch:
+      tags: [Action Items]
+      operationId: updateActionItem
+      summary: Update an action item
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: { $ref: '#/components/schemas/ActionItemFields' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActionItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── AI Assistance ─────────────────────────────
+  /ai/suggestions:
+    get:
+      tags: [AI Assistance]
+      operationId: listAiSuggestions
+      summary: List AI suggestions
+      parameters:
+        - name: serviceId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/AiSuggestionStatus' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Suggestions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiSuggestionPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [AI Assistance]
+      operationId: requestAiSuggestion
+      summary: Ask the AI assistant for a suggestion
+      description: |
+        Returns `202` with the suggestion (currently computed synchronously, so the status is already `proposed`;
+        clients should still handle `pending` and poll the `Location`). The context sent to the provider is minimized:
+        person contact details are removed and secrets are never part of a plan. Returns `503` while no AI
+        provider is configured or AI is disabled for the tenant.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AiSuggestionRequest' }
+      responses:
+        '202':
+          description: Accepted
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiSuggestion' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /ai/suggestions/{suggestionId}:
+    parameters:
+      - $ref: '#/components/parameters/SuggestionId'
+    get:
+      tags: [AI Assistance]
+      operationId: getAiSuggestion
+      summary: Get a suggestion
+      responses:
+        '200':
+          description: Suggestion
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiSuggestion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /ai/suggestions/{suggestionId}/decision:
+    parameters:
+      - $ref: '#/components/parameters/SuggestionId'
+    post:
+      tags: [AI Assistance]
+      operationId: decideAiSuggestion
+      summary: Accept, edit or reject proposals
+      description: |
+        Accepted or edited proposals are applied as normal create/update operations, with `origin: ai_accepted`,
+        and go through the same validation. This is the only way AI output reaches the plan.
+        **Not implemented yet:** `accept`/`edit` return `501`; rejecting is supported.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AiDecision' }
+      responses:
+        '200':
+          description: Decision applied
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiDecisionResult' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Recovery Runs ─────────────────────────────
+  /services/{serviceId}/recovery-runs:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Recovery Runs]
+      operationId: listRecoveryRuns
+      summary: List recovery runs of a service
+      parameters:
+        - name: active
+          in: query
+          schema: { type: boolean }
+        - name: mode
+          in: query
+          schema: { $ref: '#/components/schemas/RunMode' }
+      responses:
+        '200':
+          description: Runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RecoveryRun' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Recovery Runs]
+      operationId: declareRecoveryRun
+      summary: Declare DR and start a recovery run (Activation & Notification / BSI Alarmierung)
+      description: |
+        Pins the given approved plan version, or the current approved version if none is given, instantiates
+        the step states of the scenario's runbooks, and triggers the `dr_declared` communication rules.
+        Requires a person holding the authorizer role for failover, or a tenant `responder`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecoveryRunDeclare' }
+      responses:
+        '201':
+          description: Run started
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryRun' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /recovery-runs/{runId}:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      tags: [Recovery Runs]
+      operationId: getRecoveryRun
+      summary: Get a run with its RTO clock and progress
+      responses:
+        '200':
+          description: Run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryRun' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /recovery-runs/{runId}/steps:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      tags: [Recovery Runs]
+      operationId: listRunSteps
+      summary: Step states in execution order
+      parameters:
+        - name: microserviceId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/RunStepStatus' }
+      responses:
+        '200':
+          description: Step states
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RunStepState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /recovery-runs/{runId}/steps/{stepId}/transition:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+      - $ref: '#/components/parameters/StepId'
+    post:
+      tags: [Recovery Runs]
+      operationId: transitionRunStep
+      summary: Start, complete, skip or fail a step
+      description: |
+        `skipped` and `failed` require a `note`. `done` requires `verificationPassed`. Decision-point steps
+        require the authorization role. Returns `409` if a step it depends on is not done.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StepTransition' }
+      responses:
+        '200':
+          description: Updated step state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunStepState' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /recovery-runs/{runId}/status:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    post:
+      tags: [Recovery Runs]
+      operationId: changeRunStatus
+      summary: Move the run through its phases (recovered → reconstituting) or abort it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunStatusChange' }
+      responses:
+        '200':
+          description: Updated run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryRun' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /recovery-runs/{runId}/close:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    post:
+      tags: [Recovery Runs]
+      operationId: closeRecoveryRun
+      summary: Close the run, record achieved RTO/RPO and lessons learned
+      description: Creates action items from the lessons learned. For test runs, it also stores DR test results.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunClose' }
+      responses:
+        '200':
+          description: Closed run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryRun' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /recovery-runs/{runId}/events:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      tags: [Recovery Runs]
+      operationId: listRunEvents
+      summary: Append-only timeline (audit evidence)
+      parameters:
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Events in chronological order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RunEvent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Recovery Runs]
+      operationId: createRunEvent
+      summary: Add a note, decision or record of a sent communication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunEventCreate' }
+      responses:
+        '201':
+          description: Event appended
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunEvent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /recovery-runs/{runId}/stream:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      tags: [Recovery Runs]
+      operationId: streamRunEvents
+      summary: Live updates for all responders (Server-Sent Events)
+      description: Each SSE `data` field is a JSON-encoded `RunEvent`. Supports `Last-Event-ID` for resume.
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          schema: { type: string }
+      responses:
+        '200':
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Readiness ─────────────────────────────
+  /readiness:
+    get:
+      tags: [Readiness]
+      operationId: getTenantReadiness
+      summary: DR readiness of all IT services (dashboard)
+      responses:
+        '200':
+          description: Readiness
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TenantReadiness' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /services/{serviceId}/readiness:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Readiness, IT Services]
+      operationId: getServiceReadiness
+      summary: DR readiness of one IT service with the next actions
+      responses:
+        '200':
+          description: Readiness
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceReadiness' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /services/{serviceId}/compliance:
+    parameters:
+      - $ref: '#/components/parameters/ServiceId'
+    get:
+      tags: [Readiness, IT Services]
+      operationId: getServiceCompliance
+      summary: NIST SP 800-34 / BSI 200-4 / IT-Grundschutz requirements with status for the service
+      parameters:
+        - $ref: '#/components/parameters/AcceptLanguage'
+      responses:
+        '200':
+          description: Requirements
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ComplianceItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  # ───────────────────────────── Audit ─────────────────────────────
+  /audit-log:
+    get:
+      tags: [Audit]
+      operationId: listAuditLog
+      summary: Query the append-only audit log (auditor, admin)
+      parameters:
+        - name: entityType
+          in: query
+          schema: { type: string }
+        - name: entityId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Audit entries
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditEntryPage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        OIDC access token (JWT). Required claims: `sub` (user) and `tenant_id` (UUID of the active tenant).
+        The tenant role may come from the token or from the tenant membership. The identity provider is
+        still open (docs/overview/open-questions.md).
+
+  headers:
+    Location:
+      description: URL of the created resource
+      schema: { type: string }
+    ETag:
+      description: Entity tag derived from the resource `version`
+      schema: { type: string }
+
+  parameters:
+    ServiceId:
+      name: serviceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MicroserviceId:
+      name: microserviceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MemberId:
+      name: memberId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PersonId:
+      name: personId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RoleId:
+      name: roleId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ScenarioId:
+      name: scenarioId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DependencyId:
+      name: dependencyId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ObjectiveId:
+      name: objectiveId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    StrategyId:
+      name: strategyId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DataProtectionId:
+      name: dataProtectionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RunbookId:
+      name: runbookId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    StepId:
+      name: stepId
+      in: path
+      required: true
+      description: Runbook step id
+      schema: { type: string, format: uuid }
+    AssignmentId:
+      name: assignmentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PlanVersionId:
+      name: planVersionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    DrTestId:
+      name: drTestId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ActionItemId:
+      name: actionItemId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SuggestionId:
+      name: suggestionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RunId:
+      name: runId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    StepKey:
+      name: stepKey
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/WorkflowStepKey' }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from a previous page's `nextCursor`
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    IfMatch:
+      name: If-Match
+      in: header
+      description: ETag of the version being modified (optimistic concurrency)
+      schema: { type: string }
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      description: Language for labels and exports (`en`, `de`)
+      schema: { type: string, default: en }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid access token
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Error:
+      description: Unexpected error
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Resource not found (or it belongs to a different tenant than the token's)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: The caller lacks the required tenant role or DR role, or the token has no valid `tenant_id` claim
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Conflicts with the current state (for example the resource is still referenced, or the transition is invalid)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PreconditionFailed:
+      description: The `If-Match` version is stale
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationFailed:
+      description: Input validation, integrity rule or workflow gate failed
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ValidationProblem' }
+    TooManyRequests:
+      description: Rate limit exceeded (AI requests)
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ServiceUnavailable:
+      description: The AI provider is unavailable. All non-AI functions keep working.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TenantOk:
+      description: Tenant
+      headers:
+        ETag: { $ref: '#/components/headers/ETag' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Tenant' }
+    TenantCreated:
+      description: Tenant created
+      headers:
+        Location: { $ref: '#/components/headers/Location' }
+        ETag: { $ref: '#/components/headers/ETag' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Tenant' }
+
+  schemas:
+    # ─────────── Common ───────────
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        components:
+          type: object
+          additionalProperties: { type: string, enum: [ok, degraded, down] }
+
+    Problem:
+      type: object
+      description: RFC 9457 problem details
+      properties:
+        type: { type: string, format: uri-reference, default: about:blank }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string, format: uri-reference }
+
+    ValidationProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            issues:
+              type: array
+              items: { $ref: '#/components/schemas/Issue' }
+
+    Issue:
+      type: object
+      description: A validation error, integrity-rule violation or gate failure
+      required: [ruleId, severity, message]
+      properties:
+        ruleId:
+          type: string
+          description: Stable rule id, for example `RTO_EXCEEDS_SERVICE_RTO`, `DEPENDENCY_RTO_CONFLICT`, `STEP_WITHOUT_OWNER`, `STRATEGY_GAP`, `ROLE_WITHOUT_DEPUTY`
+          examples: [DEPENDENCY_RTO_CONFLICT]
+        severity: { type: string, enum: [blocking, warning, info] }
+        message: { type: string }
+        field: { type: string, description: 'JSON pointer to the offending input field, if any' }
+        entityType: { type: string }
+        entityId: { type: string, format: uuid }
+        workflowStep: { $ref: '#/components/schemas/WorkflowStepKey' }
+        standardRef:
+          type: string
+          description: Related standard reference
+          examples: ['NIST SP 800-34 §3.2', 'BSI 200-4 Soll-Ist-Vergleich']
+
+    ResourceMeta:
+      type: object
+      required: [id, tenantId, version, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        tenantId: { type: string, format: uuid, readOnly: true }
+        version: { type: integer, readOnly: true, description: Incremented on every change (optimistic concurrency) }
+        createdAt: { type: string, format: date-time, readOnly: true }
+        createdBy: { type: string, readOnly: true }
+        updatedAt: { type: string, format: date-time, readOnly: true }
+        updatedBy: { type: string, readOnly: true }
+
+    ContentMeta:
+      type: object
+      properties:
+        origin:
+          type: string
+          enum: [user, ai_accepted, import]
+          readOnly: true
+          description: Provenance of the content
+        aiSuggestionId:
+          type: [string, 'null']
+          format: uuid
+          readOnly: true
+
+    PageInfo:
+      type: object
+      properties:
+        nextCursor: { type: [string, 'null'] }
+
+    Minutes:
+      type: integer
+      minimum: 0
+      description: Duration in minutes
+
+    # ─────────── Enums ───────────
+    TenantRole:
+      type: string
+      enum: [admin, author, reviewer, responder, auditor]
+    ServiceLifecycleStatus:
+      type: string
+      enum: [planned, active, retired]
+    ProtectionRequirement:
+      type: string
+      description: BSI protection requirement (Schutzbedarf) for availability
+      enum: [normal, high, very_high]
+    ImpactLevel:
+      type: string
+      description: NIST FIPS 199 availability impact level
+      enum: [low, moderate, high]
+    ImpactCategory:
+      type: string
+      enum: [financial, operational, reputational, legal_regulatory, people_safety]
+    ScenarioCategory:
+      type: string
+      enum: [infrastructure, hardware, network, cloud, application, database, storage, backup, cybersecurity, people, supplier, facility, power, environmental, operational]
+    ScenarioStatus:
+      type: string
+      enum: [brainstormed, merged, selected, rejected]
+    DrRequired:
+      type: string
+      enum: [yes, no_handled_by_ha, no_accepted_risk, degraded_mode]
+    Priority:
+      type: string
+      enum: [low, medium, high, critical]
+    Rating:
+      type: integer
+      minimum: 1
+      maximum: 4
+      description: 1 = low … 4 = very high
+    MicroserviceCriticality:
+      type: string
+      enum: [critical, important, supporting]
+    DependencyKind:
+      type: string
+      enum: [microservice, infrastructure, platform, external_service, supplier, personnel]
+    DependencyDirection:
+      type: string
+      enum: [upstream, downstream]
+    DependencyCriticality:
+      type: string
+      enum: [critical, degradable, optional]
+    StrategyType:
+      type: string
+      enum: [backup_restore, replication, active_passive, active_active, cross_region_failover, iac_rebuild, degraded_mode, manual_workaround]
+    DataProtectionMethod:
+      type: string
+      enum: [snapshot, logical_backup, replication, pitr]
+    RunbookPhase:
+      type: string
+      description: NIST SP 800-34 plan phase (BSI Alarmierung / Wiederanlauf / Wiederherstellung)
+      enum: [activation, recovery, reconstitution]
+    CommunicationTrigger:
+      type: string
+      enum: [dr_declared, status_update, recovered, failback, aborted]
+    CommunicationAudience:
+      type: string
+      enum: [internal, management, customers, regulator, suppliers]
+    WorkflowPhase:
+      type: string
+      enum: [understand, assess, design, document, validate_maintain]
+    WorkflowStepKey:
+      type: string
+      enum:
+        - define_service
+        - map_dependencies
+        - business_impact
+        - brainstorm_scenarios
+        - consolidate_scenarios
+        - select_scenarios
+        - recovery_objectives
+        - recovery_strategies
+        - runbooks
+        - roles
+        - communication
+        - review_approve
+        - test
+        - measure
+        - improve
+    WorkflowStepStatus:
+      type: string
+      enum: [not_started, in_progress, complete, needs_review]
+    PlanStatus:
+      type: string
+      enum: [draft, in_review, approved, retired]
+    DrTestType:
+      type: string
+      enum: [plan_review, tabletop, simulation, technical_recovery, full_dr]
+    DrTestOutcome:
+      type: string
+      enum: [planned, passed, partially_passed, failed, cancelled]
+    ActionItemSource:
+      type: string
+      enum: [test, run, review, ai_gap_check, manual]
+    ActionItemStatus:
+      type: string
+      enum: [open, in_progress, done, wont_fix]
+    AiSuggestionKind:
+      type: string
+      description: What the assistant should do. Each kind maps to a workflow step or a recovery-run situation.
+      enum:
+        - describe_service
+        - suggest_microservices
+        - suggest_dependencies
+        - check_bia
+        - suggest_scenarios
+        - consolidate_scenarios
+        - assess_scenarios
+        - suggest_objectives
+        - suggest_strategies
+        - gap_check
+        - draft_runbook
+        - review_runbook
+        - check_roles
+        - draft_communication
+        - review_plan
+        - tabletop_script
+        - summarize_test
+        - lessons_learned
+        - troubleshoot_step
+        - status_update
+    AiSuggestionStatus:
+      type: string
+      enum: [pending, proposed, accepted, partially_accepted, rejected, failed]
+    RunMode:
+      type: string
+      enum: [real, test]
+    RunStatus:
+      type: string
+      description: declared → in_progress → recovered (Notbetrieb/Wiederanlauf reached) → reconstituting → closed. `aborted` is possible from any state before closed.
+      enum: [declared, in_progress, recovered, reconstituting, closed, aborted]
+    RunStepStatus:
+      type: string
+      enum: [pending, blocked, in_progress, done, skipped, failed]
+
+    # ─────────── Tenant & Directory ───────────
+    TenantSettings:
+      type: object
+      properties:
+        reviewIntervalMonths: { type: integer, minimum: 1, default: 12 }
+        impactCategories:
+          type: array
+          items: { $ref: '#/components/schemas/ImpactCategory' }
+        impactTimeWindowsMinutes:
+          type: array
+          description: Time windows for the BIA impact assessment
+          items: { $ref: '#/components/schemas/Minutes' }
+          default: [60, 240, 1440, 4320, 10080]
+        impactToleranceLevel:
+          allOf: [{ $ref: '#/components/schemas/Rating' }]
+          description: The impact level at which disruption becomes intolerable. MTPD is derived from it.
+          default: 3
+        defaultLanguage: { type: string, enum: [en, de], default: en }
+        aiEnabled: { type: boolean, default: true }
+    TenantFields:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        slug: { type: string, pattern: '^[a-z0-9-]{2,63}$' }
+        settings: { $ref: '#/components/schemas/TenantSettings' }
+    TenantCreate:
+      allOf:
+        - $ref: '#/components/schemas/TenantFields'
+        - required: [name, slug]
+    TenantUpdate:
+      $ref: '#/components/schemas/TenantFields'
+    Tenant:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/TenantFields'
+        - required: [name, slug, settings]
+    TenantPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Tenant' }
+
+    MemberCreate:
+      type: object
+      required: [userRef, tenantRole]
+      properties:
+        userRef: { type: string, description: Subject identifier from the identity provider }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        tenantRole: { $ref: '#/components/schemas/TenantRole' }
+        personId: { type: [string, 'null'], format: uuid, description: Optional link to a contact directory entry }
+    MemberUpdate:
+      type: object
+      properties:
+        tenantRole: { $ref: '#/components/schemas/TenantRole' }
+        personId: { type: [string, 'null'], format: uuid }
+    Member:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/MemberCreate'
+    MemberPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Member' }
+
+    PersonFields:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        email: { type: string, format: email }
+        phone: { type: string }
+        alternateContact: { type: string, description: Out-of-band contact for use when normal channels are down }
+        team: { type: string }
+    PersonCreate:
+      allOf:
+        - $ref: '#/components/schemas/PersonFields'
+        - required: [name]
+    Person:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/PersonFields'
+        - required: [name]
+    PersonPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Person' }
+
+    RoleFields:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string }
+    RoleCreate:
+      allOf:
+        - $ref: '#/components/schemas/RoleFields'
+        - required: [name]
+    Role:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/RoleFields'
+        - type: object
+          required: [name]
+          properties:
+            isDefault: { type: boolean, readOnly: true }
+
+    # ─────────── Catalog ───────────
+    Catalog:
+      type: object
+      properties:
+        scenarioCategories:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { $ref: '#/components/schemas/ScenarioCategory' }
+              label: { type: string }
+        scenarioTemplates:
+          type: array
+          items: { $ref: '#/components/schemas/ScenarioTemplate' }
+        strategyTypes:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { $ref: '#/components/schemas/StrategyType' }
+              label: { type: string }
+              typicalRto: { type: string }
+              typicalRpo: { type: string }
+              notes: { type: string }
+        testTypes:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { $ref: '#/components/schemas/DrTestType' }
+              label: { type: string }
+              depth: { type: integer, description: 1 = lightest }
+        defaultRoles:
+          type: array
+          items: { type: string }
+        workflowSteps:
+          type: array
+          items: { $ref: '#/components/schemas/WorkflowStepDefinition' }
+    ScenarioTemplate:
+      type: object
+      properties:
+        id: { type: string }
+        category: { $ref: '#/components/schemas/ScenarioCategory' }
+        title: { type: string }
+        description: { type: string }
+    WorkflowStepDefinition:
+      type: object
+      properties:
+        key: { $ref: '#/components/schemas/WorkflowStepKey' }
+        number: { type: integer, minimum: 1, maximum: 15 }
+        phase: { $ref: '#/components/schemas/WorkflowPhase' }
+        title: { type: string }
+        nistRef: { type: string }
+        bsiRef: { type: string }
+
+    ScenarioSuggestion:
+      type: object
+      required: [templateId, category, title, description, relevance]
+      properties:
+        templateId: { type: string, description: Use as `catalogTemplateId` when creating the scenario }
+        category: { $ref: '#/components/schemas/ScenarioCategory' }
+        title: { type: string }
+        description: { type: string }
+        relevance:
+          type: string
+          enum: [always, data_stores, cloud, external_dependency, identity_provider, high_protection]
+          description: Why the scenario is suggested
+
+    # ─────────── IT Service ───────────
+    ItServiceFields:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string }
+        businessOwnerId: { type: [string, 'null'], format: uuid, description: Person }
+        technicalOwnerId: { type: [string, 'null'], format: uuid, description: Person }
+        consumers:
+          type: array
+          description: Who depends on this service (user groups, business processes)
+          items: { type: string }
+        protectionRequirementAvailability: { $ref: '#/components/schemas/ProtectionRequirement' }
+        impactLevel: { $ref: '#/components/schemas/ImpactLevel' }
+        lifecycleStatus: { $ref: '#/components/schemas/ServiceLifecycleStatus' }
+    ItServiceCreate:
+      allOf:
+        - $ref: '#/components/schemas/ItServiceFields'
+        - required: [name]
+    ItService:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/ItServiceFields'
+        - type: object
+          required: [name]
+          properties:
+            summary: { $ref: '#/components/schemas/ServiceSummary' }
+    ServiceSummary:
+      type: object
+      readOnly: true
+      properties:
+        microserviceCount: { type: integer }
+        selectedScenarioCount: { type: integer }
+        workflowCompletionPercent: { type: integer, minimum: 0, maximum: 100 }
+        currentPlanVersionId: { type: [string, 'null'], format: uuid }
+        currentPlanStatus: { $ref: '#/components/schemas/PlanStatus' }
+        nextReviewDue: { type: [string, 'null'], format: date }
+        lastTestedAt: { type: [string, 'null'], format: date-time }
+        blockingIssueCount: { type: integer }
+        openActionItemCount: { type: integer }
+        activeRecoveryRunId: { type: [string, 'null'], format: uuid }
+    ItServicePage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/ItService' }
+
+    # ─────────── Business Impact ───────────
+    ImpactRating:
+      type: object
+      required: [impactCategory, timeWindowMinutes, level]
+      properties:
+        impactCategory: { $ref: '#/components/schemas/ImpactCategory' }
+        timeWindowMinutes: { $ref: '#/components/schemas/Minutes' }
+        level: { $ref: '#/components/schemas/Rating' }
+        rationale: { type: string }
+    BusinessImpactAnalysisInput:
+      type: object
+      required: [mtpdMinutes, serviceRtoMinutes, serviceRpoMinutes]
+      properties:
+        mtpdMinutes:
+          allOf: [{ $ref: '#/components/schemas/Minutes' }]
+          description: Maximum tolerable period of disruption (BSI MTA)
+        serviceRtoMinutes:
+          allOf: [{ $ref: '#/components/schemas/Minutes' }]
+          description: Service RTO (BSI WAZ). Must be ≤ MTPD.
+        serviceRpoMinutes:
+          allOf: [{ $ref: '#/components/schemas/Minutes' }]
+          description: Service RPO (BSI MTDV)
+        minimumOperatingLevel:
+          type: string
+          description: Reduced service level acceptable during an emergency (BSI Notbetriebsniveau / MBCO)
+        regulatoryRequirements: { type: string }
+        impactRatings:
+          type: array
+          items: { $ref: '#/components/schemas/ImpactRating' }
+    BusinessImpactAnalysis:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/BusinessImpactAnalysisInput'
+        - type: object
+          properties:
+            serviceId: { type: string, format: uuid, readOnly: true }
+            derivedMtpdMinutes:
+              type: [integer, 'null']
+              readOnly: true
+              description: MTPD derived from impact ratings and the tenant tolerance level (for plausibility checks)
+
+    # ─────────── Scenario ───────────
+    ScenarioFields:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        description: { type: string }
+        category: { $ref: '#/components/schemas/ScenarioCategory' }
+        parentScenarioId:
+          type: [string, 'null']
+          format: uuid
+          description: Parent in the scenario mind map (sub-scenario). Must be a non-merged scenario of the same service; cycles are rejected. null detaches.
+        likelihood:
+          allOf: [{ $ref: '#/components/schemas/Rating' }]
+          description: Risk assessment before the decision (e.g. placing the scenario in the risk matrix)
+        impact: { $ref: '#/components/schemas/Rating' }
+        affectedMicroserviceIds:
+          type: array
+          description: Affected components. Empty = the whole service (the default component).
+          items: { type: string, format: uuid }
+    ScenarioCreate:
+      allOf:
+        - $ref: '#/components/schemas/ScenarioFields'
+        - type: object
+          properties:
+            catalogTemplateId: { type: string, description: Prefill from a catalog template }
+    ScenarioMergeRequest:
+      type: object
+      required: [sourceScenarioIds]
+      properties:
+        sourceScenarioIds:
+          type: array
+          minItems: 1
+          items: { type: string, format: uuid }
+        mergedDescription: { type: string, description: Optional consolidated description for the target }
+    ScenarioDecision:
+      type: object
+      required: [decision, decisionRationale]
+      properties:
+        decision: { type: string, enum: [selected, rejected] }
+        likelihood: { $ref: '#/components/schemas/Rating' }
+        impact: { $ref: '#/components/schemas/Rating' }
+        priority: { $ref: '#/components/schemas/Priority' }
+        drRequired: { $ref: '#/components/schemas/DrRequired' }
+        decisionRationale: { type: string, minLength: 1 }
+        affectedMicroserviceIds:
+          type: array
+          description: Affected components. Empty = the whole service (the default component).
+          items: { type: string, format: uuid }
+    Scenario:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/ScenarioFields'
+        - type: object
+          required: [title, status]
+          properties:
+            serviceId: { type: string, format: uuid, readOnly: true }
+            status: { $ref: '#/components/schemas/ScenarioStatus' }
+            mergedIntoId: { type: [string, 'null'], format: uuid, readOnly: true }
+            likelihood: { $ref: '#/components/schemas/Rating' }
+            impact: { $ref: '#/components/schemas/Rating' }
+            riskScore: { type: integer, readOnly: true, description: likelihood × impact }
+            priority: { $ref: '#/components/schemas/Priority' }
+            drRequired: { $ref: '#/components/schemas/DrRequired' }
+            decisionRationale: { type: string }
+            decidedBy: { type: [string, 'null'], readOnly: true }
+            decidedAt: { type: [string, 'null'], format: date-time, readOnly: true }
+
+    # ─────────── Microservice ───────────
+    MicroserviceFields:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string }
+        ownerTeam: { type: string }
+        platform: { type: string, description: 'Runtime or platform, for example Kubernetes, VM or a PaaS' }
+        hostingLocation: { type: string, description: Region or data center }
+        dataStores:
+          type: array
+          items: { type: string }
+        restoreOrder: { type: integer, minimum: 1 }
+        criticalityWithinService: { $ref: '#/components/schemas/MicroserviceCriticality' }
+    MicroserviceCreate:
+      allOf:
+        - $ref: '#/components/schemas/MicroserviceFields'
+        - required: [name]
+    Microservice:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/MicroserviceFields'
+        - type: object
+          required: [name]
+          properties:
+            serviceId: { type: string, format: uuid, readOnly: true }
+            isDefault:
+              type: boolean
+              readOnly: true
+              description: The default component that stands for the whole service. It cannot be deleted.
+
+    # ─────────── Dependency ───────────
+    DependencyFields:
+      type: object
+      properties:
+        kind: { $ref: '#/components/schemas/DependencyKind' }
+        targetMicroserviceId:
+          type: [string, 'null']
+          format: uuid
+          description: Required when `kind` is `microservice`. May belong to another IT service of the same tenant.
+        targetName: { type: string, description: Name of an external or infrastructure dependency }
+        direction: { $ref: '#/components/schemas/DependencyDirection' }
+        criticality: { $ref: '#/components/schemas/DependencyCriticality' }
+        dependencyRtoMinutes:
+          type: [integer, 'null']
+          minimum: 0
+          description: Known recovery time of the dependency. It is derived automatically for internal microservices.
+        hasOwnDrPlan: { type: boolean }
+        notes: { type: string }
+    DependencyCreate:
+      allOf:
+        - $ref: '#/components/schemas/DependencyFields'
+        - required: [kind, direction, criticality]
+    Dependency:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/DependencyFields'
+        - type: object
+          properties:
+            microserviceId: { type: string, format: uuid, readOnly: true }
+            rtoConflict:
+              type: boolean
+              readOnly: true
+              description: True if this is a critical dependency whose RTO is greater than the dependent's RTO
+
+    DependencyGraph:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            required: [id, type, label]
+            properties:
+              id: { type: string }
+              type: { type: string, enum: [microservice, external_microservice, infrastructure, platform, external_service, supplier, personnel] }
+              label: { type: string }
+              rtoMinutes: { type: [integer, 'null'] }
+              singlePointOfFailure:
+                type: string
+                enum: [shared_critical_dependency, critical_without_dr_plan]
+                description: 'Set when the node is a single point of failure: a critical dependency shared by several microservices, or a critical dependency without its own DR plan'
+        edges:
+          type: array
+          items:
+            type: object
+            required: [from, to]
+            properties:
+              from: { type: string }
+              to: { type: string }
+              dependencyId: { type: string, format: uuid }
+              criticality: { $ref: '#/components/schemas/DependencyCriticality' }
+              rtoConflict: { type: boolean }
+        suggestedRestoreOrder:
+          type: array
+          description: Microservice ids in topological order (dependencies first)
+          items: { type: string, format: uuid }
+        cycles:
+          type: array
+          description: Dependency cycles detected (each cycle as a list of node ids)
+          items:
+            type: array
+            items: { type: string }
+
+    # ─────────── Recovery Objective ───────────
+    RecoveryObjectiveFields:
+      type: object
+      properties:
+        scenarioId:
+          type: [string, 'null']
+          format: uuid
+          description: null = the default objective for all scenarios
+        rtoMinutes: { $ref: '#/components/schemas/Minutes' }
+        rpoMinutes: { $ref: '#/components/schemas/Minutes' }
+        mttrTargetMinutes: { type: [integer, 'null'], minimum: 0 }
+        restorePriority: { type: integer, minimum: 1 }
+        firstFunctions:
+          type: array
+          description: Functionality that must be available first
+          items: { type: string }
+    RecoveryObjectiveCreate:
+      allOf:
+        - $ref: '#/components/schemas/RecoveryObjectiveFields'
+        - required: [rtoMinutes, rpoMinutes]
+    RecoveryObjective:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/RecoveryObjectiveFields'
+        - type: object
+          required: [rtoMinutes, rpoMinutes]
+          properties:
+            microserviceId: { type: string, format: uuid, readOnly: true }
+
+    # ─────────── Recovery Strategy (Mitigation) ───────────
+    RecoveryStrategyFields:
+      type: object
+      properties:
+        scenarioIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: Scenarios this measure covers (one or more of the same IT service)
+          items: { type: string, format: uuid }
+        scenarioId:
+          type: string
+          format: uuid
+          deprecated: true
+          description: 'Single-scenario form of `scenarioIds` (requests); in responses the first of `scenarioIds`'
+        type: { $ref: '#/components/schemas/StrategyType' }
+        title: { type: string }
+        description: { type: string }
+        estimatedRtoMinutes: { $ref: '#/components/schemas/Minutes' }
+        estimatedRpoMinutes: { $ref: '#/components/schemas/Minutes' }
+        costNotes: { type: string }
+        prerequisites:
+          type: array
+          description: 'What must exist beforehand, for example a standby environment, replicated backups or DNS automation'
+          items: { type: string }
+        implementationStatus:
+          type: string
+          enum: [not_implemented, in_progress, implemented]
+          default: not_implemented
+          description: Recovery capability. The workflow warns about selected strategies that are not implemented or never tested.
+        lastTestedAt:
+          type: [string, 'null']
+          format: date-time
+          description: When the recovery capability was last tested
+    RecoveryStrategyCreate:
+      allOf:
+        - $ref: '#/components/schemas/RecoveryStrategyFields'
+        - required: [scenarioIds, type, estimatedRtoMinutes, estimatedRpoMinutes]
+    RecoveryStrategy:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/RecoveryStrategyFields'
+        - type: object
+          required: [scenarioIds, type]
+          properties:
+            microserviceId: { type: string, format: uuid, readOnly: true }
+            isSelected: { type: boolean, readOnly: true }
+            gapJustification: { type: string, readOnly: true, description: Justification given when a gap was accepted }
+            gapCheck: { $ref: '#/components/schemas/GapCheck' }
+    GapCheck:
+      type: object
+      readOnly: true
+      description: BSI Soll-Ist-Vergleich. Compares the strategy's estimated capability with the objective.
+      properties:
+        status: { type: string, enum: [meets, gap, no_objective] }
+        objectiveId: { type: [string, 'null'], format: uuid }
+        rtoGapMinutes: { type: integer, description: Estimated minus target. A positive value is a gap. }
+        rpoGapMinutes: { type: integer }
+        acceptedGapActionItemId: { type: [string, 'null'], format: uuid }
+    StrategySelection:
+      type: object
+      properties:
+        acceptGap: { type: boolean, default: false }
+        gapJustification: { type: string, description: Required when acceptGap is true }
+
+    # ─────────── Data Protection ───────────
+    DataProtectionFields:
+      type: object
+      properties:
+        dataStore: { type: string }
+        method: { $ref: '#/components/schemas/DataProtectionMethod' }
+        frequencyMinutes: { $ref: '#/components/schemas/Minutes' }
+        retentionDays: { type: integer, minimum: 0 }
+        offsite: { type: boolean }
+        immutable: { type: boolean, description: Protection against ransomware or deletion }
+        encrypted: { type: boolean }
+        lastRestoreTestAt: { type: [string, 'null'], format: date-time }
+    DataProtectionCreate:
+      allOf:
+        - $ref: '#/components/schemas/DataProtectionFields'
+        - required: [dataStore, method, frequencyMinutes]
+    DataProtection:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/DataProtectionFields'
+        - type: object
+          properties:
+            microserviceId: { type: string, format: uuid, readOnly: true }
+            supportsRpo:
+              type: boolean
+              readOnly: true
+              description: True if the frequency is ≤ the microservice's RPO
+
+    # ─────────── Runbook ───────────
+    RunbookFields:
+      type: object
+      properties:
+        scenarioId: { type: string, format: uuid }
+        strategyId: { type: [string, 'null'], format: uuid }
+        title: { type: string, minLength: 1 }
+        description: { type: string }
+    RunbookCreate:
+      allOf:
+        - $ref: '#/components/schemas/RunbookFields'
+        - type: object
+          required: [scenarioId, title]
+          properties:
+            steps:
+              type: array
+              description: Optional initial steps, in order
+              items: { $ref: '#/components/schemas/RunbookStepCreate' }
+    Runbook:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/RunbookFields'
+        - type: object
+          required: [scenarioId, title]
+          properties:
+            microserviceId: { type: string, format: uuid, readOnly: true }
+            stepCount: { type: integer, readOnly: true }
+            criticalPathMinutes:
+              type: integer
+              readOnly: true
+              description: Longest dependency chain of expected step durations. Compared against the RTO.
+            exceedsRto: { type: boolean, readOnly: true }
+    RunbookDetail:
+      allOf:
+        - $ref: '#/components/schemas/Runbook'
+        - type: object
+          properties:
+            steps:
+              type: array
+              items: { $ref: '#/components/schemas/RunbookStep' }
+
+    RunbookStepFields:
+      type: object
+      properties:
+        phase: { $ref: '#/components/schemas/RunbookPhase' }
+        title: { type: string, minLength: 1 }
+        instructions: { type: string, description: Markdown }
+        ownerRoleId: { type: [string, 'null'], format: uuid }
+        expectedDurationMinutes: { $ref: '#/components/schemas/Minutes' }
+        verification: { type: string, description: How to confirm the step succeeded }
+        dependsOnStepIds:
+          type: array
+          items: { type: string, format: uuid }
+        isDecisionPoint: { type: boolean, default: false }
+        requiresAuthorizationRoleId:
+          type: [string, 'null']
+          format: uuid
+          description: 'Role that must authorize this step, for example failover or failback'
+    RunbookStepCreate:
+      allOf:
+        - $ref: '#/components/schemas/RunbookStepFields'
+        - type: object
+          required: [phase, title]
+          properties:
+            position: { type: integer, minimum: 1, description: Insert position (defaults to the end) }
+    RunbookStep:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/RunbookStepFields'
+        - type: object
+          required: [phase, title, seq]
+          properties:
+            runbookId: { type: string, format: uuid, readOnly: true }
+            seq: { type: integer, readOnly: true }
+    StepOrder:
+      type: object
+      required: [stepIds]
+      properties:
+        stepIds:
+          type: array
+          items: { type: string, format: uuid }
+
+    # ─────────── Roles & Communication ───────────
+    RoleAssignmentFields:
+      type: object
+      properties:
+        roleId: { type: string, format: uuid }
+        personId: { type: string, format: uuid }
+        isDeputy: { type: boolean, default: false, description: BSI Vertretung }
+        escalationOrder: { type: integer, minimum: 1 }
+    RoleAssignmentCreate:
+      allOf:
+        - $ref: '#/components/schemas/RoleAssignmentFields'
+        - required: [roleId, personId]
+    RoleAssignment:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/RoleAssignmentFields'
+        - type: object
+          required: [roleId, personId]
+          properties:
+            serviceId: { type: string, format: uuid, readOnly: true }
+
+    CommunicationRuleFields:
+      type: object
+      properties:
+        trigger: { $ref: '#/components/schemas/CommunicationTrigger' }
+        audience: { $ref: '#/components/schemas/CommunicationAudience' }
+        channel: { type: string, description: 'For example email, phone bridge, status page or messenger' }
+        frequencyMinutes: { type: [integer, 'null'], minimum: 1, description: For `status_update` }
+        responsibleRoleId: { type: string, format: uuid }
+        authorizerRoleId: { type: [string, 'null'], format: uuid }
+        template: { type: string, description: 'Message template (Markdown, with placeholders)' }
+    CommunicationRuleCreate:
+      allOf:
+        - $ref: '#/components/schemas/CommunicationRuleFields'
+        - required: [trigger, audience, channel, responsibleRoleId]
+    CommunicationRule:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/CommunicationRuleFields'
+        - type: object
+          properties:
+            serviceId: { type: string, format: uuid, readOnly: true }
+
+    # ─────────── Workflow ───────────
+    WorkflowStep:
+      type: object
+      required: [key, number, phase, title, status]
+      properties:
+        key: { $ref: '#/components/schemas/WorkflowStepKey' }
+        number: { type: integer }
+        phase: { $ref: '#/components/schemas/WorkflowPhase' }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/WorkflowStepStatus' }
+        gatePassed: { type: boolean }
+        issues:
+          type: array
+          items: { $ref: '#/components/schemas/Issue' }
+        completedBy: { type: [string, 'null'] }
+        completedAt: { type: [string, 'null'], format: date-time }
+    WorkflowState:
+      type: object
+      required: [serviceId, steps]
+      properties:
+        serviceId: { type: string, format: uuid }
+        completionPercent: { type: integer, minimum: 0, maximum: 100 }
+        currentStepKey: { $ref: '#/components/schemas/WorkflowStepKey' }
+        steps:
+          type: array
+          items: { $ref: '#/components/schemas/WorkflowStep' }
+    StepCompletion:
+      type: object
+      properties:
+        comment: { type: string }
+        acknowledgeWarnings: { type: boolean, default: false, description: Required if the gate has warnings }
+    ValidationReport:
+      type: object
+      properties:
+        serviceId: { type: string, format: uuid }
+        generatedAt: { type: string, format: date-time }
+        blockingCount: { type: integer }
+        warningCount: { type: integer }
+        issues:
+          type: array
+          items: { $ref: '#/components/schemas/Issue' }
+
+    # ─────────── Plan Versions ───────────
+    PlanVersionSummary:
+      type: object
+      required: [id, serviceId, version, status]
+      properties:
+        id: { type: string, format: uuid }
+        serviceId: { type: string, format: uuid }
+        version: { type: integer }
+        status: { $ref: '#/components/schemas/PlanStatus' }
+        submittedBy: { type: string }
+        submittedAt: { type: string, format: date-time }
+        approvedBy: { type: [string, 'null'] }
+        approvedAt: { type: [string, 'null'], format: date-time }
+        nextReviewDue: { type: [string, 'null'], format: date }
+        comment: { type: string, description: Submission comment }
+        reviewComment: { type: string, description: Comment of the approval or rejection }
+    PlanVersion:
+      allOf:
+        - $ref: '#/components/schemas/PlanVersionSummary'
+        - type: object
+          properties:
+            snapshot: { $ref: '#/components/schemas/PlanSnapshot' }
+    PlanSnapshot:
+      type: object
+      description: Immutable copy of the full IT service subtree at submission time
+      properties:
+        formatVersion: { type: integer, description: Snapshot format version (currently 1) }
+        service: { $ref: '#/components/schemas/ItService' }
+        bia: { $ref: '#/components/schemas/BusinessImpactAnalysis' }
+        scenarios:
+          type: array
+          items: { $ref: '#/components/schemas/Scenario' }
+        microservices:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Microservice'
+              - type: object
+                properties:
+                  dependencies:
+                    type: array
+                    items: { $ref: '#/components/schemas/Dependency' }
+                  recoveryObjectives:
+                    type: array
+                    items: { $ref: '#/components/schemas/RecoveryObjective' }
+                  recoveryStrategies:
+                    type: array
+                    items: { $ref: '#/components/schemas/RecoveryStrategy' }
+                  dataProtection:
+                    type: array
+                    items: { $ref: '#/components/schemas/DataProtection' }
+                  runbooks:
+                    type: array
+                    items: { $ref: '#/components/schemas/RunbookDetail' }
+        roleAssignments:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/RoleAssignment'
+              - type: object
+                properties:
+                  roleName: { type: string }
+                  person: { $ref: '#/components/schemas/Person' }
+        communicationRules:
+          type: array
+          items: { $ref: '#/components/schemas/CommunicationRule' }
+        roles:
+          type: array
+          description: Role catalog of the tenant (to resolve role ids of runbook steps)
+          items: { $ref: '#/components/schemas/Role' }
+        persons:
+          type: array
+          description: Persons referenced by the plan (owners, role assignments)
+          items: { $ref: '#/components/schemas/Person' }
+    PlanSubmission:
+      type: object
+      properties:
+        comment: { type: string }
+    PlanApproval:
+      type: object
+      properties:
+        comment: { type: string }
+        nextReviewDue: { type: string, format: date, description: Defaults to approval date plus the tenant review interval }
+    PlanRejection:
+      type: object
+      required: [comment]
+      properties:
+        comment: { type: string, minLength: 1 }
+
+    # ─────────── Readiness ───────────
+    NextAction:
+      type: object
+      required: [step, stepNumber, severity, ruleId, message]
+      properties:
+        serviceId: { type: string, format: uuid, description: Only in the tenant view }
+        serviceName: { type: string, description: Only in the tenant view }
+        step: { $ref: '#/components/schemas/WorkflowStepKey' }
+        stepNumber: { type: integer, minimum: 1, maximum: 15 }
+        severity: { type: string, enum: [blocking, warning, info] }
+        ruleId: { type: string, description: 'Gate rule id, or COMPLETE_STEP when the step only needs to be completed' }
+        message: { type: string }
+        entityType: { type: string }
+        entityId: { type: string, format: uuid }
+    ReadinessFigures:
+      type: object
+      required: [score, critical, attention, completed, total, untestedScenarios]
+      properties:
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 'Share of workflow steps done: 2 points per completed step with passed gate, 1 per passed gate'
+        critical: { type: integer, description: Steps with blocking issues }
+        attention: { type: integer, description: Steps with warnings only }
+        completed: { type: integer, description: Completed steps }
+        total: { type: integer }
+        lastExerciseAt: { type: string, format: date-time, description: Last executed DR test or exercise }
+        rtoCompliance:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Share of measured test results within RTO (absent without measurements)
+        untestedScenarios: { type: integer, description: Selected DR scenarios without an executed test }
+    ServiceReadiness:
+      allOf:
+        - $ref: '#/components/schemas/ReadinessFigures'
+        - type: object
+          required: [serviceId, name, reviewDue, nextActions]
+          properties:
+            serviceId: { type: string, format: uuid }
+            name: { type: string }
+            reviewDue: { type: boolean, description: 'No approved plan, or its review date has passed' }
+            nextActions:
+              type: array
+              maxItems: 5
+              items: { $ref: '#/components/schemas/NextAction' }
+    TenantReadiness:
+      allOf:
+        - $ref: '#/components/schemas/ReadinessFigures'
+        - type: object
+          required: [plansRequiringReview, nextActions, services]
+          properties:
+            plansRequiringReview: { type: integer }
+            nextActions:
+              type: array
+              description: Blocking before warnings, services with the lowest readiness first
+              items: { $ref: '#/components/schemas/NextAction' }
+            services:
+              type: array
+              description: Sorted by readiness, lowest first
+              items: { $ref: '#/components/schemas/ServiceReadiness' }
+    ComplianceItem:
+      type: object
+      required: [id, framework, reference, title, whatToDo, evidence, steps, status, blockingIssues]
+      properties:
+        id: { type: string }
+        framework: { type: string, examples: ['NIST SP 800-34', 'BSI 200-4', 'BSI IT-Grundschutz'] }
+        reference: { type: string }
+        title: { type: string }
+        whatToDo: { type: string }
+        evidence: { type: string }
+        steps:
+          type: array
+          description: Workflow steps that implement the requirement
+          items: { $ref: '#/components/schemas/WorkflowStepKey' }
+        status: { type: string, enum: [fulfilled, in_progress, open] }
+        blockingIssues: { type: integer }
+
+    # ─────────── DR Tests ───────────
+    DrTestFields:
+      type: object
+      properties:
+        type: { $ref: '#/components/schemas/DrTestType' }
+        scenarioId: { type: string, format: uuid }
+        planVersionId: { type: string, format: uuid, description: The approved plan version under test }
+        plannedAt: { type: string, format: date-time }
+        executedAt: { type: [string, 'null'], format: date-time }
+        participantIds:
+          type: array
+          items: { type: string, format: uuid }
+        outcome: { $ref: '#/components/schemas/DrTestOutcome' }
+        report: { type: string, description: Markdown }
+    DrTestCreate:
+      allOf:
+        - $ref: '#/components/schemas/DrTestFields'
+        - required: [type, scenarioId, plannedAt]
+    DrTest:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/DrTestFields'
+        - type: object
+          required: [type, scenarioId]
+          properties:
+            serviceId: { type: string, format: uuid, readOnly: true }
+            recoveryRunId: { type: [string, 'null'], format: uuid, readOnly: true }
+    DrTestResultInput:
+      type: object
+      required: [microserviceId]
+      properties:
+        microserviceId: { type: string, format: uuid }
+        achievedRtoMinutes: { type: [integer, 'null'], minimum: 0 }
+        achievedRpoMinutes: { type: [integer, 'null'], minimum: 0 }
+        notes: { type: string }
+    DrTestResult:
+      allOf:
+        - $ref: '#/components/schemas/DrTestResultInput'
+        - type: object
+          properties:
+            targetRtoMinutes: { type: integer, readOnly: true }
+            targetRpoMinutes: { type: integer, readOnly: true }
+            rtoMet: { type: boolean, readOnly: true }
+            rpoMet: { type: boolean, readOnly: true }
+            passed: { type: boolean, readOnly: true }
+
+    # ─────────── Action Items ───────────
+    ActionItemFields:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        description: { type: string }
+        ownerPersonId: { type: [string, 'null'], format: uuid }
+        dueDate: { type: [string, 'null'], format: date }
+        status: { $ref: '#/components/schemas/ActionItemStatus' }
+        relatedEntity:
+          type: [object, 'null']
+          properties:
+            type: { type: string, examples: [runbook_step] }
+            id: { type: string, format: uuid }
+    ActionItemCreate:
+      allOf:
+        - $ref: '#/components/schemas/ActionItemFields'
+        - required: [title]
+    ActionItem:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/ContentMeta'
+        - $ref: '#/components/schemas/ActionItemFields'
+        - type: object
+          required: [title, status, source]
+          properties:
+            serviceId: { type: string, format: uuid, readOnly: true }
+            source: { $ref: '#/components/schemas/ActionItemSource' }
+            sourceId: { type: [string, 'null'], format: uuid, readOnly: true }
+
+    # ─────────── AI ───────────
+    AiSuggestionRequest:
+      type: object
+      required: [kind, serviceId]
+      properties:
+        kind: { $ref: '#/components/schemas/AiSuggestionKind' }
+        serviceId: { type: string, format: uuid }
+        microserviceId: { type: string, format: uuid }
+        scenarioId: { type: string, format: uuid }
+        runbookId: { type: string, format: uuid }
+        recoveryRunId: { type: string, format: uuid }
+        runbookStepId: { type: string, format: uuid }
+        prompt: { type: string, maxLength: 4000, description: 'Optional free text, for example an error message during recovery' }
+        language: { type: string, enum: [en, de], default: en }
+    AiProposal:
+      type: object
+      required: [proposalId, entityType, operation, data]
+      properties:
+        proposalId: { type: string }
+        entityType:
+          type: string
+          examples: [scenario, dependency, recovery_strategy, runbook_step, communication_rule]
+        operation: { type: string, enum: [create, update, merge, advice] }
+        targetId: { type: [string, 'null'], format: uuid, description: For update or merge }
+        data:
+          type: object
+          description: Payload shaped like the corresponding Create or Fields schema (or `{ text }` for advice)
+        rationale: { type: string }
+        confidence: { type: string, enum: [low, medium, high] }
+    AiSuggestion:
+      type: object
+      required: [id, kind, status]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/AiSuggestionKind' }
+        status: { $ref: '#/components/schemas/AiSuggestionStatus' }
+        serviceId: { type: string, format: uuid }
+        context: { $ref: '#/components/schemas/AiSuggestionRequest' }
+        proposals:
+          type: array
+          items: { $ref: '#/components/schemas/AiProposal' }
+        summary: { type: string }
+        model: { type: string }
+        error: { type: [string, 'null'] }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        decidedBy: { type: [string, 'null'] }
+        decidedAt: { type: [string, 'null'], format: date-time }
+    AiSuggestionPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/AiSuggestion' }
+    AiDecision:
+      type: object
+      required: [decisions]
+      properties:
+        decisions:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [proposalId, decision]
+            properties:
+              proposalId: { type: string }
+              decision: { type: string, enum: [accept, edit, reject] }
+              editedData: { type: object, description: Required for `edit` }
+        comment: { type: string }
+    AiDecisionResult:
+      type: object
+      properties:
+        suggestion: { $ref: '#/components/schemas/AiSuggestion' }
+        applied:
+          type: array
+          items:
+            type: object
+            properties:
+              proposalId: { type: string }
+              entityType: { type: string }
+              entityId: { type: string, format: uuid }
+              operation: { type: string, enum: [create, update, merge] }
+
+    # ─────────── Recovery Runs ───────────
+    RecoveryRunDeclare:
+      type: object
+      required: [scenarioId, mode]
+      properties:
+        scenarioId: { type: string, format: uuid }
+        mode: { $ref: '#/components/schemas/RunMode' }
+        planVersionId: { type: string, format: uuid, description: Defaults to the current approved version }
+        drTestId: { type: string, format: uuid, description: Links a test-mode run to a planned DR test }
+        microserviceIds:
+          type: array
+          description: Restrict to these microservices. Defaults to all affected by the scenario.
+          items: { type: string, format: uuid }
+        note: { type: string }
+    RecoveryRun:
+      type: object
+      required: [id, serviceId, planVersionId, scenarioId, mode, status, declaredAt]
+      properties:
+        id: { type: string, format: uuid }
+        tenantId: { type: string, format: uuid }
+        serviceId: { type: string, format: uuid }
+        planVersionId: { type: string, format: uuid }
+        scenarioId: { type: string, format: uuid }
+        drTestId: { type: [string, 'null'], format: uuid }
+        mode: { $ref: '#/components/schemas/RunMode' }
+        status: { $ref: '#/components/schemas/RunStatus' }
+        declaredBy: { type: string }
+        declaredAt: { type: string, format: date-time }
+        recoveredAt: { type: [string, 'null'], format: date-time }
+        closedAt: { type: [string, 'null'], format: date-time }
+        clock:
+          type: object
+          description: RTO clock
+          properties:
+            elapsedMinutes: { type: integer }
+            serviceRtoMinutes: { type: integer }
+            mtpdMinutes: { type: integer }
+            remainingCriticalPathMinutes: { type: integer }
+            rtoAtRisk: { type: boolean, description: Elapsed time plus remaining critical path exceeds the RTO }
+        progress:
+          type: object
+          properties:
+            total: { type: integer }
+            pending: { type: integer }
+            blocked: { type: integer }
+            inProgress: { type: integer }
+            done: { type: integer }
+            skipped: { type: integer }
+            failed: { type: integer }
+        nextStatusUpdateDueAt: { type: [string, 'null'], format: date-time }
+        outcome: { type: [string, 'null'], enum: [success, partial, failed, null] }
+    RunStepState:
+      type: object
+      required: [runbookStepId, status]
+      properties:
+        runbookStepId: { type: string, format: uuid }
+        runbookId: { type: string, format: uuid }
+        microserviceId: { type: string, format: uuid }
+        order: { type: integer, description: 'Execution order within the run (restore order, then runbook sequence)' }
+        seq: { type: integer, description: Sequence within the runbook }
+        phase: { $ref: '#/components/schemas/RunbookPhase' }
+        title: { type: string }
+        instructions: { type: string }
+        verification: { type: string }
+        ownerRoleId: { type: [string, 'null'], format: uuid }
+        expectedDurationMinutes: { type: integer }
+        status: { $ref: '#/components/schemas/RunStepStatus' }
+        blockedBy:
+          type: array
+          items: { type: string, format: uuid }
+        assigneePersonId: { type: [string, 'null'], format: uuid }
+        startedAt: { type: [string, 'null'], format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        note: { type: [string, 'null'] }
+    StepTransition:
+      type: object
+      required: [to]
+      properties:
+        to: { type: string, enum: [in_progress, done, skipped, failed] }
+        note: { type: string }
+        verificationPassed: { type: boolean }
+        assigneePersonId: { type: string, format: uuid }
+    RunStatusChange:
+      type: object
+      required: [to]
+      properties:
+        to: { type: string, enum: [recovered, reconstituting, aborted] }
+        note: { type: string }
+    RunClose:
+      type: object
+      required: [outcome]
+      properties:
+        outcome: { type: string, enum: [success, partial, failed] }
+        summary: { type: string }
+        achieved:
+          type: array
+          items: { $ref: '#/components/schemas/DrTestResultInput' }
+        lessonsLearned:
+          type: array
+          description: Each entry becomes an action item (source `run`)
+          items: { type: string }
+    RunEventType:
+      type: string
+      enum: [declared, step_transition, status_changed, note, decision, communication_sent, ai_suggestion_accepted, closed]
+    RunEvent:
+      type: object
+      required: [id, runId, at, actor, type]
+      properties:
+        id: { type: string }
+        runId: { type: string, format: uuid }
+        at: { type: string, format: date-time }
+        actor: { type: string }
+        type: { $ref: '#/components/schemas/RunEventType' }
+        message: { type: string }
+        payload: { type: object }
+    RunEventCreate:
+      type: object
+      required: [type, message]
+      properties:
+        type: { type: string, enum: [note, decision, communication_sent] }
+        message: { type: string, minLength: 1 }
+        payload: { type: object }
+
+    # ─────────── Audit ───────────
+    AuditEntry:
+      type: object
+      required: [id, at, actor, action, entityType]
+      properties:
+        id: { type: string }
+        at: { type: string, format: date-time }
+        actor: { type: string }
+        action: { type: string, enum: [create, update, delete, approve, reject, decide, transition, login] }
+        entityType: { type: string }
+        entityId: { type: [string, 'null'], format: uuid }
+        diff: { type: object, description: JSON merge patch describing the change }
+    AuditEntryPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/AuditEntry' }

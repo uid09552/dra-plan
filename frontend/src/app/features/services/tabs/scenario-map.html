@@ -1,0 +1,399 @@
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+  <mat-button-toggle-group
+    [value]="view()"
+    (change)="view.set($event.value)"
+    [attr.aria-label]="'scenarioMap.view' | t"
+  >
+    <mat-button-toggle value="map"
+      ><mat-icon>account_tree</mat-icon> {{ 'scenarioMap.mindMap' | t }}</mat-button-toggle
+    >
+    <mat-button-toggle value="matrix"
+      ><mat-icon>grid_on</mat-icon> {{ 'risk.title' | t }}</mat-button-toggle
+    >
+  </mat-button-toggle-group>
+  @if (view() === 'map') {
+    <div class="zoom d-flex align-items-center gap-1">
+      <button
+        mat-icon-button
+        (click)="zoomBy(1 / 1.2)"
+        [matTooltip]="'scenarioMap.zoomOut' | t"
+        [attr.aria-label]="'scenarioMap.zoomOut' | t"
+      >
+        <mat-icon>zoom_out</mat-icon>
+      </button>
+      <span class="zoom-value">{{ (zoom() * 100).toFixed(0) }} %</span>
+      <button
+        mat-icon-button
+        (click)="zoomBy(1.2)"
+        [matTooltip]="'scenarioMap.zoomIn' | t"
+        [attr.aria-label]="'scenarioMap.zoomIn' | t"
+      >
+        <mat-icon>zoom_in</mat-icon>
+      </button>
+      <button
+        mat-icon-button
+        (click)="fit()"
+        [matTooltip]="'scenarioMap.fit' | t"
+        [attr.aria-label]="'scenarioMap.fit' | t"
+      >
+        <mat-icon>fit_screen</mat-icon>
+      </button>
+      <button mat-stroked-button (click)="addScenario()">
+        <mat-icon>add</mat-icon>{{ 'scenarioMap.newScenario' | t }}
+      </button>
+    </div>
+  }
+  <span class="flex-grow-1"></span>
+  <span class="status info">{{ 'scenarioMap.total' | t: { count: counts().total } }}</span>
+  <span class="status ok">{{ 'scenarioMap.selectedCount' | t: { count: counts().selected } }}</span>
+  <span class="status warn">{{ 'scenarioMap.openCount' | t: { count: counts().open } }}</span>
+</div>
+
+@for (e of m.issues(); track e) {
+  <div class="status error mb-2">{{ e }}</div>
+}
+
+<div class="row g-3">
+  <div class="col-12">
+    @if (view() === 'map') {
+      <div class="map-scroll" #mapScroll>
+        <div
+          class="canvas"
+          [style.width.px]="layout().width * zoom()"
+          [style.height.px]="layout().height * zoom()"
+          (mouseleave)="hovered.set(null)"
+        >
+          <svg
+            [attr.width]="layout().width * zoom()"
+            [attr.height]="layout().height * zoom()"
+            [attr.viewBox]="'0 0 ' + layout().width + ' ' + layout().height"
+            role="group"
+            [attr.aria-label]="'scenarioMap.mindMap' | t"
+            [class.dragging]="drag()?.moved"
+            (pointermove)="dragMove($event)"
+            (pointerup)="dragEnd()"
+            (pointercancel)="drag.set(null)"
+          >
+            @for (l of layout().links; track $index) {
+              <path [attr.d]="linkPath(l.from, l.to)" class="link" />
+            }
+            @for (n of layout().nodes; track n.id) {
+              <g
+                [attr.transform]="'translate(' + n.x + ',' + n.y + ')'"
+                [class]="'node ' + n.kind + ' ' + (n.scenario?.status ?? '')"
+                [class.active]="n.id === selectedId()"
+                [class.drag-source]="drag()?.moved && drag()?.id === n.id"
+                [class.drop-target]="drag()?.moved && drag()?.target?.id === n.id"
+                tabindex="0"
+                [attr.role]="n.scenario ? 'button' : null"
+                (click)="pick(n)"
+                (keydown.enter)="pick(n)"
+                (keydown.delete)="n.scenario && remove(n.scenario)"
+                (pointerdown)="dragStart($event, n)"
+                (contextmenu)="nodeMenu($event, n, menu)"
+                (mouseenter)="hovered.set(n.id)"
+                (focus)="hovered.set(n.id)"
+              >
+                <title>{{ n.label }}</title>
+                <rect [attr.width]="nodeW" [attr.height]="nodeH" [attr.rx]="nodeH / 2" />
+                <text x="18" y="28">{{ short(n.label, n.scenario ? 26 : 30) }}</text>
+                @if (n.scenario && measureCount(n.id); as count) {
+                  <g class="badge" [attr.transform]="'translate(' + (nodeW - 24) + ',23)'">
+                    <title>{{ 'measures.count' | t: { count } }}</title>
+                    <circle r="12" />
+                    <text text-anchor="middle" y="4">{{ count }}</text>
+                  </g>
+                }
+              </g>
+            }
+            @if (drag(); as d) {
+              @if (d.moved) {
+                <g
+                  class="ghost"
+                  [attr.transform]="'translate(' + (d.x + 8) + ',' + (d.y + 8) + ')'"
+                >
+                  <rect [attr.width]="nodeW" [attr.height]="nodeH" [attr.rx]="nodeH / 2" />
+                  <text x="18" y="28">{{ short(d.label, 26) }}</text>
+                </g>
+              }
+            }
+          </svg>
+          <!-- Action buttons of the hovered / selected node (same actions as the right-click menu) -->
+          @if (!drag()?.moved) {
+            @if (actionNode(); as n) {
+              <div
+                class="node-actions"
+                [style.left.px]="(n.x + nodeW + 6) * zoom()"
+                [style.top.px]="(n.y + nodeH / 2) * zoom()"
+                (mouseenter)="hovered.set(n.id)"
+              >
+                @for (a of nodeActions(n); track a.icon) {
+                  <button
+                    mat-icon-button
+                    class="act"
+                    [class.danger]="a.danger"
+                    (click)="a.run()"
+                    [matTooltip]="a.label | t"
+                    [attr.aria-label]="(a.label | t) + ': ' + n.label"
+                  >
+                    <mat-icon>{{ a.icon }}</mat-icon>
+                  </button>
+                }
+              </div>
+            }
+          }
+        </div>
+      </div>
+      <p class="muted small mt-2 mb-1">{{ 'scenarioMap.mapHint' | t }}</p>
+      <div class="legend d-flex flex-wrap gap-3 muted">
+        <span
+          ><span class="dot brainstormed"></span>{{ 'scenarioMap.status.brainstormed' | t }}</span
+        >
+        <span><span class="dot selected"></span>{{ 'scenarioMap.status.selected' | t }}</span>
+        <span><span class="dot rejected"></span>{{ 'scenarioMap.status.rejected' | t }}</span>
+      </div>
+    } @else {
+      <app-risk-matrix
+        [scenarios]="scenarios.value() ?? []"
+        (picked)="pick($event)"
+        (rated)="rate($event)"
+        (menuRequested)="menu.open($event.event, scenarioMenu($event.scenario))"
+      />
+    }
+
+    <!-- Add a scenario -->
+    <form class="row g-2 align-items-start mt-3" [formGroup]="addForm" (ngSubmit)="add()">
+      <mat-form-field class="col-12 col-md-6">
+        <mat-label>{{ 'scenarioMap.newScenario' | t }}</mat-label>
+        <input matInput formControlName="title" required />
+        <mat-hint>{{ 'scenarioMap.newHint' | t }}</mat-hint>
+      </mat-form-field>
+      <mat-form-field class="col-8 col-md-4">
+        <mat-label>{{ 'scenarios.category' | t }}</mat-label>
+        <mat-select formControlName="category">
+          <mat-option value="">{{ 'common.none' | t }}</mat-option>
+          @for (c of catalog.value()?.scenarioCategories ?? []; track c.key) {
+            <mat-option [value]="c.key">{{ c.label }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      <div class="col-4 col-md-2 pt-md-2">
+        <button mat-flat-button type="submit" [disabled]="addForm.invalid || m.busy()">
+          <mat-icon>add</mat-icon>{{ 'common.add' | t }}
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-12 col-lg-7" #detail>
+    <!-- Selected scenario -->
+    @if (selected(); as s) {
+      <mat-card appearance="outlined" class="mb-3">
+        <mat-card-header>
+          <mat-card-title>{{ s.title }}</mat-card-title>
+          <mat-card-subtitle>
+            <span class="status" [class]="tone(s)">{{ 'scenarioMap.status.' + s.status | t }}</span>
+            @if (s.riskScore) {
+              · {{ 'scenarios.risk' | t }} {{ s.riskScore }}
+            }
+          </mat-card-subtitle>
+        </mat-card-header>
+        <mat-card-content>
+          <!-- Measures assigned to this scenario -->
+          <div class="d-flex align-items-center gap-2">
+            <h4 class="panel-title flex-grow-1">{{ 'measures.title' | t }}</h4>
+            <button mat-button (click)="addMeasure(s)" [disabled]="m.busy()">
+              <mat-icon>add</mat-icon>{{ 'measures.add' | t }}
+            </button>
+          </div>
+          <ul class="measures">
+            @for (st of selectedMeasures(); track st.id) {
+              <li (contextmenu)="menu.open($event, measureMenu(st))">
+                <mat-icon [class.ok]="st.isSelected">{{
+                  st.isSelected ? 'check_circle' : 'shield'
+                }}</mat-icon>
+                <span class="flex-grow-1">
+                  {{ measureLabel(st) }}
+                  <span class="muted small">
+                    · {{ componentName(st.microserviceId) }} ·
+                    {{ 'guide.mitigations.status.' + st.implementationStatus | t }}</span
+                  >
+                </span>
+                <button
+                  mat-icon-button
+                  (click)="menu.open($event, measureMenu(st))"
+                  [attr.aria-label]="'common.actions' | t"
+                >
+                  <mat-icon>more_vert</mat-icon>
+                </button>
+              </li>
+            } @empty {
+              <li class="muted small">{{ 'measures.noneForScenario' | t }}</li>
+            }
+          </ul>
+
+          <h4 class="panel-title">{{ 'scenarioMap.decide' | t }}</h4>
+          <p class="muted small">{{ 'scenarioMap.decideHint' | t }}</p>
+          <form [formGroup]="decisionForm" class="row g-2">
+            <mat-form-field class="col-6">
+              <mat-label>{{ 'risk.likelihood' | t }}</mat-label>
+              <mat-select formControlName="likelihood">
+                @for (r of ratings; track r) {
+                  <mat-option [value]="r">{{ r }} – {{ 'risk.levels.' + r | t }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field class="col-6">
+              <mat-label>{{ 'risk.impact' | t }}</mat-label>
+              <mat-select formControlName="impact">
+                @for (r of ratings; track r) {
+                  <mat-option [value]="r">{{ r }} – {{ 'risk.levels.' + r | t }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field class="col-12">
+              <mat-label>{{ 'scenarios.drRequired' | t }}</mat-label>
+              <mat-select formControlName="drRequired">
+                @for (o of drRequiredOptions; track o) {
+                  <mat-option [value]="o">{{ 'scenarioMap.drRequired.' + o | t }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field class="col-12">
+              <mat-label>{{ 'scenarioMap.rationale' | t }}</mat-label>
+              <textarea matInput rows="2" formControlName="rationale" required></textarea>
+            </mat-form-field>
+          </form>
+          <div class="d-flex gap-2 mb-3">
+            <button
+              mat-flat-button
+              (click)="decide(s, 'selected')"
+              [disabled]="decisionForm.invalid || m.busy()"
+            >
+              <mat-icon>check</mat-icon>{{ 'scenarioMap.accept' | t }}
+            </button>
+            <button
+              mat-stroked-button
+              (click)="decide(s, 'rejected')"
+              [disabled]="decisionForm.invalid || m.busy()"
+            >
+              <mat-icon>close</mat-icon>{{ 'scenarioMap.reject' | t }}
+            </button>
+          </div>
+
+          <h4 class="panel-title">{{ 'scenarioMap.edit' | t }}</h4>
+          <form [formGroup]="editForm" (ngSubmit)="save(s)" class="row g-2">
+            <mat-form-field class="col-12">
+              <mat-label>{{ 'common.name' | t }}</mat-label>
+              <input matInput formControlName="title" required />
+            </mat-form-field>
+            <mat-form-field class="col-6">
+              <mat-label>{{ 'scenarios.category' | t }}</mat-label>
+              <mat-select formControlName="category">
+                @for (c of catalog.value()?.scenarioCategories ?? []; track c.key) {
+                  <mat-option [value]="c.key">{{ c.label }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+            <mat-form-field class="col-6">
+              <mat-label>{{ 'scenarioMap.parent' | t }}</mat-label>
+              <mat-select formControlName="parent">
+                <mat-option value="">{{ 'common.none' | t }}</mat-option>
+                @for (o of others(); track o.id) {
+                  <mat-option [value]="o.id">{{ o.title }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+            <div class="col-12 mb-3">
+              <button mat-stroked-button type="submit" [disabled]="editForm.invalid || m.busy()">
+                {{ 'common.save' | t }}
+              </button>
+            </div>
+          </form>
+
+          <h4 class="panel-title">{{ 'scenarioMap.subScenario' | t }}</h4>
+          <form
+            [formGroup]="childForm"
+            (ngSubmit)="addChild(s)"
+            class="d-flex gap-2 align-items-start"
+          >
+            <mat-form-field class="flex-grow-1">
+              <mat-label>{{ 'common.name' | t }}</mat-label>
+              <input matInput formControlName="title" required />
+            </mat-form-field>
+            <button
+              mat-icon-button
+              type="submit"
+              class="mt-2"
+              [disabled]="childForm.invalid || m.busy()"
+              [attr.aria-label]="'scenarioMap.subScenario' | t"
+            >
+              <mat-icon>subdirectory_arrow_right</mat-icon>
+            </button>
+          </form>
+
+          <h4 class="panel-title">{{ 'scenarioMap.merge' | t }}</h4>
+          <form
+            [formGroup]="mergeForm"
+            (ngSubmit)="merge(s)"
+            class="d-flex gap-2 align-items-start"
+          >
+            <mat-form-field class="flex-grow-1">
+              <mat-label>{{ 'scenarioMap.mergeInto' | t }}</mat-label>
+              <mat-select formControlName="target">
+                @for (o of others(); track o.id) {
+                  <mat-option [value]="o.id">{{ o.title }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+            <button
+              mat-icon-button
+              type="submit"
+              class="mt-2"
+              [disabled]="mergeForm.invalid || m.busy()"
+              [attr.aria-label]="'scenarioMap.merge' | t"
+            >
+              <mat-icon>call_merge</mat-icon>
+            </button>
+          </form>
+        </mat-card-content>
+      </mat-card>
+    } @else {
+      <p class="muted">{{ 'scenarioMap.pickHint' | t }}</p>
+    }
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <!-- Suggestions -->
+    <h3 class="section">
+      <mat-icon>tips_and_updates</mat-icon> {{ 'scenarioMap.suggestions' | t }}
+    </h3>
+    @if (suggestions.value()?.length === 0) {
+      <p class="muted">{{ 'scenarioMap.noSuggestions' | t }}</p>
+    }
+    <ul class="suggestions">
+      @for (sg of suggestions.value() ?? []; track sg.templateId) {
+        <li>
+          <div class="flex-grow-1">
+            <div>
+              <strong>{{ sg.title }}</strong>
+              <span class="muted small"> · {{ categoryLabel(sg.category) }}</span>
+            </div>
+            <div class="muted small">{{ 'scenarioMap.relevance.' + sg.relevance | t }}</div>
+          </div>
+          <button
+            mat-icon-button
+            (click)="accept(sg.templateId)"
+            [disabled]="m.busy()"
+            [matTooltip]="sg.description"
+            [attr.aria-label]="('common.add' | t) + ': ' + sg.title"
+          >
+            <mat-icon>add_circle</mat-icon>
+          </button>
+        </li>
+      }
+    </ul>
+  </div>
+</div>
+
+<app-context-menu #menu />

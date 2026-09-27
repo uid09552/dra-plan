@@ -1,0 +1,8 @@
+# Redocly CLI config: `npx @redocly/cli lint`
+apis:
+  dra-workflow:
+    root: api/openapi.yaml
+extends:
+  - recommended
+rules:
+  info-license: off   # license not decided yet

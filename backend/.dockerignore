@@ -1,0 +1,5 @@
+target/
+tests/
+**/*.rs.bk
+.env
+.env.*

@@ -33,11 +33,15 @@ related: [0001-rust-backend, 0002-angular-material-frontend, open-questions]
 
 ## Components
 
-- **domain:** Pure Rust types for [[dr-plan-model]] and validation (for example "RTO of a service must be ≥ RTO of its dependencies"). No I/O.
-- **workflow:** Explicit state machines for [[plan-authoring]] and [[recovery-execution]], with persisted, resumable state.
+The backend is hexagonal and sliced by feature. See [[backend]] for layers, frameworks, configuration and security.
+
+
+- **domain:** Pure Rust types for [[dr-plan-model]] (tenant → IT service → microservice → DR items) and its integrity rules (for example "microservice RTO ≤ service RTO ≤ MTPD" and "a critical dependency's RTO ≤ the dependent's RTO"). No I/O.
+- **workflow:** Explicit state machines for [[plan-authoring]] (15 steps with gates) and [[recovery-execution]] (Activation → Recovery → Reconstitution), with persisted, resumable state.
+- **Tenant isolation:** `tenant_id` is on every table and is enforced in the storage layer (see [[0004-tenant-service-microservice-hierarchy]]).
 - **ai:** A trait-based provider interface so the backend can switch between hosted and self-hosted models. Every AI output is labeled as a suggestion and needs user acceptance.
 - **export:** Produces standalone plan documents for offline and crisis use.
-- **api:** Thin adapter layer that maps HTTP to domain and workflow calls.
+- **api:** Thin adapter layer that maps HTTP to domain and workflow calls. It implements the contract in `api/openapi.yaml` (see [[api]]).
 
 ## Cross-cutting concerns
 - **Availability:** The DR tool must not share a failure domain with the services it protects.

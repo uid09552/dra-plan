@@ -1,0 +1,196 @@
+<div class="page">
+  <a routerLink="/services" class="back"
+    ><mat-icon>arrow_back</mat-icon>{{ 'services.title' | t }}</a
+  >
+
+  @if (service.value(); as s) {
+    <div class="header">
+      <div>
+        <h1 class="page-title">{{ s.name }}</h1>
+        @if (s.description) {
+          <p class="muted m-0">{{ s.description }}</p>
+        }
+      </div>
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        @if (s.protectionRequirementAvailability) {
+          <span class="status info" [matTooltip]="'services.protection' | t"
+            >{{ 'services.protection' | t }}:
+            {{ 'guide.protection.' + s.protectionRequirementAvailability | t }}</span
+          >
+        }
+        <app-plan-status [status]="s.summary?.currentPlanStatus" />
+      </div>
+    </div>
+    <mat-progress-bar
+      class="mb-3"
+      mode="determinate"
+      [value]="workflow.value()?.completionPercent ?? 0"
+    />
+  } @else if (service.isLoading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  @if (m.busy()) {
+    <mat-progress-bar mode="indeterminate" class="busy" />
+  }
+
+  <mat-tab-group
+    mat-stretch-tabs="false"
+    animationDuration="0ms"
+    [selectedIndex]="tab()"
+    (selectedIndexChange)="tab.set($event)"
+  >
+    <!-- Guided wizard -->
+    <mat-tab>
+      <ng-template mat-tab-label
+        ><mat-icon class="tab-icon">explore</mat-icon>{{ 'guide.title' | t }}</ng-template
+      >
+      <div class="tab">
+        <app-service-guide
+          [serviceId]="id()"
+          [reloadKey]="reloadKey()"
+          (changed)="reload()"
+          (openTab)="openTab($event)"
+        />
+      </div>
+    </mat-tab>
+
+    <!-- Scenario mind map & risk matrix -->
+    <mat-tab>
+      <ng-template mat-tab-label
+        ><mat-icon class="tab-icon">account_tree</mat-icon
+        >{{ 'services.scenarios' | t }}</ng-template
+      >
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-scenario-map
+            [serviceId]="id()"
+            [serviceName]="service.value()?.name ?? ''"
+            [reloadKey]="reloadKey()"
+            (changed)="reload()"
+          />
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <!-- Measures (recovery strategies) -->
+    <mat-tab>
+      <ng-template mat-tab-label
+        ><mat-icon class="tab-icon">shield</mat-icon>{{ 'measures.title' | t }}</ng-template
+      >
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-measures-view [serviceId]="id()" [reloadKey]="reloadKey()" (changed)="reload()" />
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <!-- Dependency map -->
+    <mat-tab>
+      <ng-template mat-tab-label
+        ><mat-icon class="tab-icon">hub</mat-icon>{{ 'dependencies.title' | t }}</ng-template
+      >
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-dependency-map [serviceId]="id()" [reloadKey]="reloadKey()" (changed)="reload()" />
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <!-- Compliance -->
+    <mat-tab>
+      <ng-template mat-tab-label
+        ><mat-icon class="tab-icon">verified</mat-icon>{{ 'compliance.title' | t }}</ng-template
+      >
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-compliance-view
+            [serviceId]="id()"
+            [reloadKey]="reloadKey()"
+            [stepNumbers]="stepNumbers()"
+          />
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <!-- Handbook preview -->
+    <mat-tab>
+      <ng-template mat-tab-label
+        ><mat-icon class="tab-icon">menu_book</mat-icon>{{ 'handbook.title' | t }}</ng-template
+      >
+      <ng-template matTabContent>
+        <div class="tab">
+          <app-handbook-preview
+            [serviceId]="id()"
+            [serviceName]="service.value()?.name ?? 'service'"
+            [reloadKey]="reloadKey()"
+          />
+        </div>
+      </ng-template>
+    </mat-tab>
+
+    <!-- Plan versions -->
+    <mat-tab>
+      <ng-template mat-tab-label
+        ><mat-icon class="tab-icon">history</mat-icon>{{ 'services.plans' | t }}</ng-template
+      >
+      <div class="tab">
+        <button mat-flat-button class="mb-3" (click)="submitPlan()" [disabled]="m.busy()">
+          <mat-icon>send</mat-icon>{{ 'plans.submit' | t }}
+        </button>
+        @for (e of m.issues(); track e) {
+          <div class="status error mb-2">{{ e }}</div>
+        }
+        <div class="table-scroll">
+          <table mat-table [dataSource]="plans.value() ?? []" class="full-width">
+            <ng-container matColumnDef="version">
+              <th mat-header-cell *matHeaderCellDef>{{ 'plans.version' | t }}</th>
+              <td mat-cell *matCellDef="let p">{{ p.version }}</td>
+            </ng-container>
+            <ng-container matColumnDef="status">
+              <th mat-header-cell *matHeaderCellDef>{{ 'common.status' | t }}</th>
+              <td mat-cell *matCellDef="let p"><app-plan-status [status]="p.status" /></td>
+            </ng-container>
+            <ng-container matColumnDef="submitted">
+              <th mat-header-cell *matHeaderCellDef></th>
+              <td mat-cell *matCellDef="let p" class="muted">
+                {{ p.submittedBy }} · {{ p.submittedAt | date: 'short' }}
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="review">
+              <th mat-header-cell *matHeaderCellDef>{{ 'services.nextReview' | t }}</th>
+              <td mat-cell *matCellDef="let p">
+                {{ p.nextReviewDue ? (p.nextReviewDue | date) : ('common.none' | t) }}
+              </td>
+            </ng-container>
+            <ng-container matColumnDef="actions">
+              <th mat-header-cell *matHeaderCellDef></th>
+              <td mat-cell *matCellDef="let p" class="text-end">
+                @if (p.status === 'in_review') {
+                  <button mat-button (click)="approve(p.id)" [disabled]="m.busy()">
+                    {{ 'plans.approve' | t }}
+                  </button>
+                }
+                <button
+                  mat-icon-button
+                  (click)="export(p.id, p.version)"
+                  [matTooltip]="'plans.export' | t"
+                  [attr.aria-label]="'plans.export' | t"
+                >
+                  <mat-icon>download</mat-icon>
+                </button>
+              </td>
+            </ng-container>
+            <tr mat-header-row *matHeaderRowDef="planColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: planColumns"></tr>
+            <tr class="mat-mdc-row" *matNoDataRow>
+              <td class="mat-mdc-cell muted p-3" [attr.colspan]="planColumns.length">
+                {{ 'common.empty' | t }}
+              </td>
+            </tr>
+          </table>
+        </div>
+      </div>
+    </mat-tab>
+  </mat-tab-group>
+</div>

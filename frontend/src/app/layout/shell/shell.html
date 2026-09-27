@@ -1,0 +1,112 @@
+<mat-toolbar class="topbar">
+  <button
+    mat-icon-button
+    (click)="toggleNav()"
+    [attr.aria-label]="'nav.menu' | t"
+    [matTooltip]="'nav.menu' | t"
+  >
+    <mat-icon>menu</mat-icon>
+  </button>
+  <a class="brand" routerLink="/dashboard">
+    <mat-icon class="brand-icon">health_and_safety</mat-icon>
+    <span class="brand-name">{{ 'app.name' | t }}</span>
+    <span class="brand-tagline d-none d-md-inline">{{ 'app.tagline' | t }}</span>
+  </a>
+
+  <span class="spacer"></span>
+
+  <button
+    mat-icon-button
+    [matMenuTriggerFor]="langMenu"
+    [attr.aria-label]="'lang.label' | t"
+    [matTooltip]="'lang.label' | t"
+  >
+    <mat-icon>translate</mat-icon>
+  </button>
+  <mat-menu #langMenu="matMenu">
+    @for (lang of languages; track lang) {
+      <button mat-menu-item (click)="i18n.use(lang)">
+        <mat-icon>{{
+          i18n.lang() === lang ? 'radio_button_checked' : 'radio_button_unchecked'
+        }}</mat-icon>
+        <span>{{ 'lang.' + lang | t }}</span>
+      </button>
+    }
+  </mat-menu>
+
+  <button
+    mat-icon-button
+    [matMenuTriggerFor]="themeMenu"
+    [attr.aria-label]="'theme.label' | t"
+    [matTooltip]="'theme.label' | t"
+  >
+    <mat-icon>{{ theme.icon() }}</mat-icon>
+  </button>
+  <mat-menu #themeMenu="matMenu">
+    @for (t of themes; track t.mode) {
+      <button mat-menu-item (click)="theme.use(t.mode)">
+        <mat-icon>{{ t.icon }}</mat-icon>
+        <span>{{ 'theme.' + t.mode | t }}</span>
+        @if (theme.mode() === t.mode) {
+          <mat-icon class="check">check</mat-icon>
+        }
+      </button>
+    }
+  </mat-menu>
+
+  <button mat-icon-button [matMenuTriggerFor]="userMenu" aria-label="Account" class="account">
+    <mat-icon>account_circle</mat-icon>
+  </button>
+  <mat-menu #userMenu="matMenu" xPosition="before">
+    <div class="menu-header" (click)="$event.stopPropagation()">
+      <div class="menu-user">dev-user</div>
+      <div class="muted">{{ tenant()?.name ?? '' }}</div>
+      <div class="status warn mt-1">{{ 'user.devMode' | t }}</div>
+    </div>
+    <mat-divider />
+    <a mat-menu-item routerLink="/profile">
+      <mat-icon>person</mat-icon>
+      <span>{{ 'user.profile' | t }}</span>
+    </a>
+    <a mat-menu-item routerLink="/settings">
+      <mat-icon>settings</mat-icon>
+      <span>{{ 'user.settings' | t }}</span>
+    </a>
+    <mat-divider />
+    <button mat-menu-item disabled>
+      <mat-icon>logout</mat-icon>
+      <span>{{ 'user.logout' | t }}</span>
+    </button>
+  </mat-menu>
+</mat-toolbar>
+
+<mat-sidenav-container class="shell-container">
+  <mat-sidenav
+    class="sidenav"
+    [mode]="compact() ? 'over' : 'side'"
+    [opened]="navOpened()"
+    (closedStart)="onDrawerClosed()"
+  >
+    <mat-nav-list>
+      @for (item of nav; track item.path) {
+        <a
+          mat-list-item
+          [routerLink]="item.path"
+          routerLinkActive
+          #rla="routerLinkActive"
+          [activated]="rla.isActive"
+          [attr.aria-current]="rla.isActive ? 'page' : null"
+        >
+          <mat-icon matListItemIcon>{{ item.icon }}</mat-icon>
+          <span matListItemTitle>{{ item.label | t }}</span>
+        </a>
+      }
+    </mat-nav-list>
+  </mat-sidenav>
+
+  <mat-sidenav-content>
+    <main>
+      <router-outlet />
+    </main>
+  </mat-sidenav-content>
+</mat-sidenav-container>

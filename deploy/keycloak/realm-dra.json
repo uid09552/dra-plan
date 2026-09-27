@@ -1,0 +1,111 @@
+{
+  "realm": "${KEYCLOAK_REALM}",
+  "displayName": "DR Workflow",
+  "enabled": true,
+  "sslRequired": "external",
+  "organizationsEnabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "users": [
+    {
+      "username": "demo-user",
+      "email": "demo-user@demo.local",
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "User",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "${DEMO_USER_PASSWORD}", "temporary": false }]
+    }
+  ],
+  "organizations": [
+    {
+      "name": "Demo",
+      "alias": "demo",
+      "description": "Tenant `demo` of dra-workflow (organization alias = tenant slug)",
+      "enabled": true,
+      "domains": [{ "name": "demo.local", "verified": true }],
+      "attributes": { "tenant_id": ["demo"] },
+      "members": [{ "username": "demo-user", "membershipType": "MANAGED" }]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "${DRA_CLIENT_ID}",
+      "name": "DR Workflow",
+      "description": "dra-workflow application (UI and API)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${DRA_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["${UI_URL}/*"],
+      "webOrigins": ["${UI_URL}"],
+      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "${UI_URL}/*" },
+      "defaultClientScopes": ["basic", "profile", "email", "roles", "web-origins", "acr", "organization"],
+      "optionalClientScopes": ["offline_access"],
+      "protocolMappers": [
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-organization-membership-mapper",
+          "config": {
+            "claim.name": "tenant",
+            "jsonType.label": "JSON",
+            "multivalued": "true",
+            "addOrganizationId": "true",
+            "addOrganizationAttributes": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "${DRA_CLIENT_ID}",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "${APISIX_CLIENT_ID}",
+      "name": "APISIX gateway",
+      "description": "API gateway: validates bearer tokens (introspection / JWKS)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${APISIX_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": ["basic", "roles", "organization"],
+      "protocolMappers": [
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-organization-membership-mapper",
+          "config": {
+            "claim.name": "tenant",
+            "jsonType.label": "JSON",
+            "multivalued": "true",
+            "addOrganizationId": "true",
+            "addOrganizationAttributes": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

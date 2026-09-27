@@ -1,0 +1,117 @@
+@use '@angular/material' as mat;
+
+// Material 3 theme. `color-scheme: light dark` follows the OS setting; the ThemeService pins
+// light or dark by setting the `theme-light` / `theme-dark` class on <html>.
+html {
+  color-scheme: light dark;
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$azure-palette,
+        tertiary: mat.$orange-palette,
+      ),
+      typography: (
+        plain-family: "Roboto, 'Segoe UI', system-ui, sans-serif",
+        brand-family: "Roboto, 'Segoe UI', system-ui, sans-serif",
+      ),
+      density: 0,
+    )
+  );
+}
+
+html.theme-light {
+  color-scheme: light;
+}
+
+html.theme-dark {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+}
+
+// Bootstrap (grid + utilities only) sets box-sizing on its own classes; align globally.
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+a {
+  color: var(--mat-sys-primary);
+}
+
+.page {
+  padding: 16px;
+  max-width: 1400px;
+  margin: 0 auto;
+
+  @media (min-width: 768px) {
+    padding: 24px;
+  }
+}
+
+.page-title {
+  font: var(--mat-sys-headline-small);
+  margin: 0 0 4px;
+}
+
+.page-subtitle {
+  color: var(--mat-sys-on-surface-variant);
+  margin: 0 0 24px;
+}
+
+.muted {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// Status chips (plan status, step status, severities).
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font: var(--mat-sys-label-medium);
+  white-space: nowrap;
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant);
+
+  &.ok {
+    background: color-mix(in srgb, #2e7d32 18%, transparent);
+    color: light-dark(#1b5e20, #a5d6a7);
+  }
+
+  &.warn {
+    background: color-mix(in srgb, #ef6c00 18%, transparent);
+    color: light-dark(#e65100, #ffcc80);
+  }
+
+  &.error {
+    background: var(--mat-sys-error-container);
+    color: var(--mat-sys-on-error-container);
+  }
+
+  &.info {
+    background: var(--mat-sys-primary-container);
+    color: var(--mat-sys-on-primary-container);
+  }
+}
+
+.full-width {
+  width: 100%;
+}
+
+// Tables scroll horizontally on small screens instead of breaking the layout.
+.table-scroll {
+  overflow-x: auto;
+}

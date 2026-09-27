@@ -1,0 +1,71 @@
+<div class="page">
+  <h1 class="page-title">{{ 'services.title' | t }}</h1>
+  <p class="page-subtitle">{{ 'services.subtitle' | t }}</p>
+
+  <div class="toolbar">
+    <mat-form-field class="search" subscriptSizing="dynamic">
+      <mat-icon matPrefix>search</mat-icon>
+      <mat-label>{{ 'common.search' | t }}</mat-label>
+      <input matInput [value]="query()" (input)="query.set($any($event.target).value)" />
+    </mat-form-field>
+    <span class="flex-grow-1"></span>
+    <button mat-flat-button (click)="create()">
+      <mat-icon>add</mat-icon>
+      {{ 'services.new' | t }}
+    </button>
+  </div>
+
+  @if (services.isLoading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  <div class="table-scroll">
+    <table mat-table [dataSource]="services.value() ?? []" class="full-width">
+      <ng-container matColumnDef="name">
+        <th mat-header-cell *matHeaderCellDef>{{ 'common.name' | t }}</th>
+        <td mat-cell *matCellDef="let s">
+          <a [routerLink]="['/services', s.id]" (click)="$event.stopPropagation()">{{ s.name }}</a>
+          @if (s.summary?.activeRecoveryRunId) {
+            <span class="status error ms-2">{{ 'dashboard.recoveryActive' | t }}</span>
+          }
+        </td>
+      </ng-container>
+      <ng-container matColumnDef="protection">
+        <th mat-header-cell *matHeaderCellDef>{{ 'services.protection' | t }}</th>
+        <td mat-cell *matCellDef="let s">
+          {{ s.protectionRequirementAvailability ?? ('common.none' | t) }}
+        </td>
+      </ng-container>
+      <ng-container matColumnDef="workflow">
+        <th mat-header-cell *matHeaderCellDef>{{ 'services.workflow' | t }}</th>
+        <td mat-cell *matCellDef="let s" class="progress">
+          <mat-progress-bar
+            mode="determinate"
+            [value]="s.summary?.workflowCompletionPercent ?? 0"
+          />
+          <span class="muted">{{ s.summary?.workflowCompletionPercent ?? 0 }} %</span>
+        </td>
+      </ng-container>
+      <ng-container matColumnDef="plan">
+        <th mat-header-cell *matHeaderCellDef>{{ 'services.plan' | t }}</th>
+        <td mat-cell *matCellDef="let s">
+          <app-plan-status [status]="s.summary?.currentPlanStatus" />
+        </td>
+      </ng-container>
+      <ng-container matColumnDef="review">
+        <th mat-header-cell *matHeaderCellDef>{{ 'services.nextReview' | t }}</th>
+        <td mat-cell *matCellDef="let s">
+          {{ s.summary?.nextReviewDue ? (s.summary.nextReviewDue | date) : ('common.none' | t) }}
+        </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="columns"></tr>
+      <tr mat-row *matRowDef="let row; columns: columns" (click)="open(row.id)"></tr>
+      <tr class="mat-mdc-row" *matNoDataRow>
+        <td class="mat-mdc-cell muted p-3" [attr.colspan]="columns.length">
+          {{ 'common.empty' | t }}
+        </td>
+      </tr>
+    </table>
+  </div>
+</div>

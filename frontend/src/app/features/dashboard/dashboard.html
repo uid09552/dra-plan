@@ -1,0 +1,105 @@
+<div class="page">
+  <h1 class="page-title">{{ 'dashboard.title' | t }}</h1>
+  <p class="page-subtitle">{{ 'dashboard.subtitle' | t }}</p>
+
+  @if (readiness.isLoading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+
+  @for (s of activeRuns.value() ?? []; track s.id) {
+    <mat-card appearance="outlined" class="mb-3 alert">
+      <mat-card-content class="d-flex align-items-center gap-3">
+        <mat-icon>emergency</mat-icon>
+        <span class="flex-grow-1">{{ 'dashboard.recoveryActive' | t }}: {{ s.name }}</span>
+        <a mat-flat-button routerLink="/recovery">{{ 'common.open' | t }}</a>
+      </mat-card-content>
+    </mat-card>
+  }
+
+  @if (readiness.value(); as r) {
+    @if (r.services.length === 0) {
+      <mat-card appearance="outlined" class="mb-4">
+        <mat-card-content class="d-flex flex-column flex-sm-row align-items-sm-center gap-3">
+          <mat-icon class="kpi-icon">tips_and_updates</mat-icon>
+          <span class="flex-grow-1">{{ 'dashboard.quickStart' | t }}</span>
+          <a mat-flat-button routerLink="/services">{{ 'services.new' | t }}</a>
+        </mat-card-content>
+      </mat-card>
+    }
+
+    <div class="row g-3 mb-4">
+      <!-- Overall readiness -->
+      <div class="col-12 col-lg-4">
+        <mat-card appearance="outlined" class="h-100">
+          <mat-card-content class="score-card">
+            <div class="kpi-label">{{ 'readiness.title' | t }}</div>
+            <div class="score" [class]="scoreTone(r.score)">{{ r.score }}%</div>
+            <mat-progress-bar mode="determinate" [value]="r.score" />
+            <div class="muted mt-2">
+              {{ 'readiness.lastExercise' | t }}:
+              {{ r.lastExerciseAt ? (r.lastExerciseAt | date) : ('readiness.never' | t) }}
+            </div>
+          </mat-card-content>
+        </mat-card>
+      </div>
+      <!-- Figures -->
+      <div class="col-12 col-lg-8">
+        <div class="row g-3">
+          @for (kpi of kpis(); track kpi.label) {
+            <div class="col-6 col-md-4">
+              <mat-card appearance="outlined" class="kpi" [class]="kpi.tone">
+                <mat-card-content>
+                  <mat-icon class="kpi-icon">{{ kpi.icon }}</mat-icon>
+                  <div class="kpi-value">{{ kpi.value }}</div>
+                  <div class="kpi-label">{{ kpi.label | t }}</div>
+                </mat-card-content>
+              </mat-card>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <!-- Next actions -->
+      <div class="col-12 col-xl-6">
+        <h2 class="section-title">{{ 'readiness.nextActions' | t }}</h2>
+        @if (r.nextActions.length === 0) {
+          <p class="muted">{{ 'dashboard.attentionEmpty' | t }}</p>
+        }
+        <ul class="actions">
+          @for (a of r.nextActions; track $index) {
+            <li [class]="a.severity">
+              <mat-icon>{{ severityIcon[a.severity] }}</mat-icon>
+              <div class="flex-grow-1">
+                <a [routerLink]="['/services', a.serviceId]">{{ a.serviceName }}</a>
+                <span class="muted"> · {{ 'readiness.step' | t: { number: a.stepNumber } }}</span>
+                <div>{{ a.message }}</div>
+              </div>
+            </li>
+          }
+        </ul>
+      </div>
+
+      <!-- Services by readiness -->
+      <div class="col-12 col-xl-6">
+        <h2 class="section-title">{{ 'readiness.byService' | t }}</h2>
+        @for (s of r.services; track s.serviceId) {
+          <a class="service-row" [routerLink]="['/services', s.serviceId]">
+            <span class="name">{{ s.name }}</span>
+            <mat-progress-bar mode="determinate" [value]="s.score" class="flex-grow-1" />
+            <span class="pct" [class]="scoreTone(s.score)">{{ s.score }}%</span>
+            @if (s.critical > 0) {
+              <span class="status error">{{
+                'readiness.criticalCount' | t: { count: s.critical }
+              }}</span>
+            }
+            @if (s.reviewDue) {
+              <span class="status warn">{{ 'readiness.reviewDue' | t }}</span>
+            }
+          </a>
+        }
+      </div>
+    </div>
+  }
+</div>

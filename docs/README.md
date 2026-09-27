@@ -20,16 +20,46 @@ This folder is an open, tool-agnostic knowledge base: plain Markdown files with 
 | [adr/](adr/) | Architecture Decision Records |
 | [domain/](domain/) | DR concepts, glossary, DR plan data model |
 | [workflows/](workflows/) | Plan-authoring and recovery-execution workflows |
+| [requirements/](requirements/) | Product feature requirements and their implementation status |
 | [templates/](templates/) | Templates for new docs |
 
 ### Key documents
 - [[vision]]: what the tool is and why it exists
 - [[open-questions]]: undecided topics
+- [[requirements/README|Feature requirements]] and [[feature-status]]: what the product must do, and what is built
 - [[architecture-overview]]: high-level system design
-- [[glossary]]: DR terminology (RTO, RPO, BIA, and others)
-- [[dr-plan-model]]: structure of a DR plan
-- [[plan-authoring]]: guided creation workflow
+- [[api]]: backend REST API (contract: `api/openapi.yaml`)
+- [[deployment]]: container images (build/run stages), nginx, compose profile `app`
+- [[backend]]: backend architecture (hexagonal, sliced by feature, CLI configuration, OWASP controls)
+- [[mcp]]: MCP interface for AI agents (use-case tools at `/mcp`)
+- [[frontend]]: Angular cockpit (layout, i18n, dark mode)
+- [[identity-gateway]]: Keycloak (organizations = tenants) and APISIX gateway
+- [[glossary]]: DR terminology (RTO, RPO, BIA, and others), including BSI terms
+- [[dr-plan-model]]: data model (tenant → IT service → microservice → DR items)
+- [[standards-mapping]]: how NIST SP 800-34 and BSI 200-4 map onto the tool
+- [[scenario-catalog]]: default scenarios, recovery strategies and test types
+- [[plan-authoring]]: the 15-step guided plan creation workflow
 - [[recovery-execution]]: in-disaster recovery workflow
+
+### Decisions (ADRs)
+- [[0001-rust-backend]] · [[0002-angular-material-frontend]] · [[0003-markdown-knowledge-base]]
+- [[0004-tenant-service-microservice-hierarchy]] · [[0005-standards-basis]] · [[0006-rest-openapi-contract-first]] · [[0007-hexagonal-feature-sliced-backend]]
+- [[0008-use-case-based-mcp]] · [[0009-ui-layout-i18n-theming]] · [[0010-keycloak-organizations-apisix]]
+
+### Structure
+
+```
+docs/
+├── README.md                 this index
+├── overview/                 vision, open questions
+├── architecture/             system design
+├── adr/                      NNNN-*.md decision records
+├── domain/                   data model, glossary, standards mapping, catalogs
+├── workflows/                plan authoring, recovery execution
+└── templates/                adr.md, doc.md
+```
+
+Diagrams use Mermaid code blocks, which render on GitHub/GitLab, Obsidian and MkDocs (with a plugin).
 
 ## Conventions
 
