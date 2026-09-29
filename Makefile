@@ -15,7 +15,7 @@ help: ## Show available targets
 .env:
 	@cp .env.example .env && echo "Created .env from .env.example - replace the change-me secrets" && false
 
-up: .env db-sync ## Start the stack: PostgreSQL, Keycloak (:8180), APISIX gateway (:9080) on network drp
+up: .env db-sync ## Start the stack: PostgreSQL (:5434), APISIX gateway (:9080) and internal Keycloak
 	docker compose up -d
 	@$(MAKE) --no-print-directory keycloak-sync
 
@@ -25,7 +25,7 @@ down: ## Stop the stack incl. app containers (keeps data)
 docker-build: ## Build the container images dra-server:local and dra-ui:local
 	docker compose --profile app build
 
-app-up: .env db-sync ## Stack + backend and UI containers: UI via gateway http://localhost:9080 (login) or :8080 (dev mode!)
+app-up: .env db-sync ## Stack + backend and UI containers, browser access through APISIX at http://localhost:9080
 	docker compose --profile app up -d --build
 	@$(MAKE) --no-print-directory keycloak-sync
 

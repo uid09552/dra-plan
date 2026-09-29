@@ -76,9 +76,9 @@ cp .env.example .env        # then replace every "change-me" (e.g. openssl rand 
 make app-up                 # PostgreSQL, Keycloak, APISIX + backend and UI containers
 ```
 
-Open <http://localhost:9080> (through the API gateway): you are redirected to the Keycloak login;
-sign in as `demo-user` with `DEMO_USER_PASSWORD` from `.env`. <http://localhost:8080> reaches the UI
-container directly, without login (development mode, tenant `demo`).
+Open <http://localhost:9080> (the single browser-facing HTTP port): APISIX serves the UI and proxies
+Keycloak at `/auth`. You are redirected to the Keycloak login; sign in as `demo-user` with
+`DEMO_USER_PASSWORD` from `.env`.
 
 ### Development
 

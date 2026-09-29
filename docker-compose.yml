@@ -6,7 +6,7 @@
 # (`make run-gateway`) and is reached by APISIX via host.docker.internal.
 #
 # Profile `app` adds the containerized backend and UI (nginx):
-#   docker compose --profile app up -d --build      → UI on http://localhost:8080
+#   docker compose --profile app up -d --build      → UI and Keycloak through APISIX :9080
 # To route APISIX to the backend container instead of the host, set DRA_BACKEND_HOST=backend in `.env`.
 
 
@@ -51,23 +51,24 @@ services:
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
-      # Tokens are issued for the browser-facing URL; containers (APISIX) use the internal
-      # backchannel (http://keycloak:8080) for discovery, JWKS and token endpoints.
-      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}
-      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      # Public URLs include /auth, which APISIX strips before proxying to Keycloak.
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:9080/auth}
+      # Keep advertised OIDC endpoints on the public /auth route.
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
       KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
       # Placeholders in deploy/keycloak/realm-dra.json.
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-dra}
+      DRA_API_RESOURCE_ID: ${DRA_API_RESOURCE_ID:-7f2f6f00-0000-4000-8000-000000000001}
       DRA_CLIENT_ID: ${DRA_CLIENT_ID:?set DRA_CLIENT_ID in .env}
       DRA_CLIENT_SECRET: ${DRA_CLIENT_SECRET:?set DRA_CLIENT_SECRET in .env}
       APISIX_CLIENT_ID: ${APISIX_CLIENT_ID:?set APISIX_CLIENT_ID in .env}
       APISIX_CLIENT_SECRET: ${APISIX_CLIENT_SECRET:?set APISIX_CLIENT_SECRET in .env}
       DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:?set DEMO_USER_PASSWORD in .env}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
       UI_URL: ${UI_URL:-http://localhost:4200}
       DRA_PUBLIC_URL: ${DRA_PUBLIC_URL:-http://localhost:9080}
-    ports:
-      - "127.0.0.1:8180:8080"
     volumes:
       - ./deploy/keycloak/realm-dra.json:/opt/keycloak/data/import/realm-dra.json:ro
     networks: [drp]
@@ -100,8 +101,10 @@ services:
       # UI behind the gateway (default: the `ui` container of profile `app`).
       DRA_UI_HOST: ${DRA_UI_HOST:-ui}
       DRA_UI_PORT: ${DRA_UI_PORT:-8080}
+      UI_URL: ${UI_URL:-http://localhost:4200}
       # Browser login: APISIX is the OIDC client of the realm client ${DRA_CLIENT_ID}.
       DRA_PUBLIC_URL: ${DRA_PUBLIC_URL:-http://localhost:9080}
+      DRA_API_RESOURCE_ID: ${DRA_API_RESOURCE_ID:-7f2f6f00-0000-4000-8000-000000000001}
       DRA_CLIENT_ID: ${DRA_CLIENT_ID}
       DRA_CLIENT_SECRET: ${DRA_CLIENT_SECRET}
       APISIX_SESSION_SECRET: ${APISIX_SESSION_SECRET:?set APISIX_SESSION_SECRET in .env (at least 32 characters)}
@@ -119,7 +122,6 @@ services:
 
   # ── Application (profile `app`) ──────────────────────────────────────────
   backend:
-    profiles: [app]
     build:
       context: ./backend
     image: dra-server:local
@@ -139,15 +141,12 @@ services:
         condition: service_healthy
 
   ui:
-    profiles: [app]
     build:
       context: ./frontend
     image: dra-ui:local
     container_name: dra_ui
     environment:
       BACKEND_URL: http://backend:8090
-    ports:
-      - "127.0.0.1:${UI_PORT:-8080}:8080"
     networks: [drp]
     depends_on:
       backend:

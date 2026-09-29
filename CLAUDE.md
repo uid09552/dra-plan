@@ -52,8 +52,8 @@ LICENSE, NOTICE       Apache License 2.0; README.md (project overview), CONTRIBU
 
 Everything goes through the root `Makefile` (`make help`):
 
-- `make up` / `make down`: whole stack (Postgres :5434, Keycloak :8180, APISIX :9080); `make token`: access token of `demo-user`
-- `make app-up`: whole stack plus containerized backend and UI (nginx); UI with Keycloak login via the gateway on `http://localhost:9080` (APISIX is the OIDC client, session cookie), without login on `:8080`; `make docker-build` builds the images (see [docs/architecture/deployment.md](docs/architecture/deployment.md))
+- `make up` / `make down`: whole stack (Postgres :5434, APISIX :9080, Keycloak internal); `make token`: access token of `demo-user`
+- `make app-up`: whole stack plus containerized backend and UI (nginx); browser access and Keycloak login go through `http://localhost:9080` (APISIX is the OIDC client, session cookie); `make docker-build` builds the images (see [docs/architecture/deployment.md](docs/architecture/deployment.md))
 - `make run-gateway`: backend on `0.0.0.0:8090` so APISIX can reach it (see [docs/architecture/identity-gateway.md](docs/architecture/identity-gateway.md))
 - `make run`: Postgres + backend in dev mode (mocked auth, tenant `demo`, auto-migrate) on `127.0.0.1:8090`
 - `make ui`: Angular dev server on `http://localhost:4200` (proxies `/api` and `/mcp` to the backend)

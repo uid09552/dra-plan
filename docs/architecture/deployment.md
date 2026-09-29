@@ -4,7 +4,7 @@ type: architecture
 status: active
 tags: [deployment, docker, nginx]
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-29
 related: [architecture-overview, backend, frontend, identity-gateway, open-questions]
 ---
 
@@ -46,10 +46,13 @@ The profile `app` adds both containers to the stack on network `drp`:
 
 ```bash
 make app-up        # = docker compose --profile app up -d --build
-                   # → http://localhost:9080 (gateway, Keycloak login) or :8080 (UI directly, no login)
+                   # → http://localhost:9080 (UI and Keycloak login through APISIX)
 make docker-build  # build dra-server:local and dra-ui:local only
 make down          # stop everything (incl. app containers), keep data
 ```
+
+APISIX is the only host-published browser-facing HTTP port. Keycloak and the UI are reachable only on
+the internal Docker network; PostgreSQL remains bound to loopback on port 5434 for host-based development.
 
 The backend container connects as role `dra` (not a superuser, so row-level security applies). APISIX
 still routes to the backend on the host; set `DRA_BACKEND_HOST=backend` in `.env` to route it to the

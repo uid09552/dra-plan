@@ -17,8 +17,25 @@ upstreams:
       - host: "${{DRA_UI_HOST}}"
         port: ${{DRA_UI_PORT}}
         weight: 1
+  - id: dra-keycloak
+    type: roundrobin
+    nodes:
+      - host: keycloak
+        port: 8080
+        weight: 1
 
 routes:
+  # Keycloak's public /auth prefix is stripped; the server itself listens at /.
+  - id: dra-keycloak
+    uri: /auth/*
+    priority: 20
+    upstream_id: dra-keycloak
+    plugins:
+      proxy-rewrite:
+        regex_uri:
+          - "^/auth/(.*)"
+          - "/$1"
+
   # Liveness is public.
   - id: dra-health
     uri: /api/v1/health
@@ -45,10 +62,28 @@ routes:
         access_token_in_authorization_header: true
         set_userinfo_header: false
 
-  # REST API: the browser session (cookie) or a bearer token. Without either → 401, never a redirect:
-  # the UI reacts to 401 by reloading the page, which starts the login (route dra-ui).
-  - id: dra-api
+  # CORS preflight is safe and must work without an OIDC session.
+  - id: dra-api-options
     uri: /api/*
+    methods: [OPTIONS]
+    priority: 10
+    upstream_id: dra-backend
+    plugins:
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      cors:
+        allow_origins: "${{DRA_PUBLIC_URL}},${{UI_URL}}"
+        allow_methods: "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS"
+        allow_headers: "Authorization,Content-Type,If-Match,Accept,Origin,X-Requested-With"
+        expose_headers: "ETag,Location,X-Request-Id"
+        max_age: 600
+        allow_credential: true
+
+  # Read-only API methods are allowed to dra-viewer and dra-admin.
+  - id: dra-api-read
+    uri: /api/*
+    methods: [GET, HEAD]
     upstream_id: dra-backend
     plugins:
       request-id:
@@ -71,6 +106,46 @@ routes:
         access_token_in_authorization_header: true
         set_userinfo_header: false
         set_id_token_header: false
+      authz-keycloak:
+        discovery: "http://keycloak:8080/realms/${{KEYCLOAK_REALM}}/.well-known/uma2-configuration"
+        client_id: "${{DRA_CLIENT_ID}}"
+        client_secret: "${{DRA_CLIENT_SECRET}}"
+        permissions: ["${{DRA_API_RESOURCE_ID}}"]
+        http_method_as_scope: true
+        policy_enforcement_mode: ENFORCING
+
+  # Mutations require dra-admin; Keycloak evaluates the HTTP method as an authorization scope.
+  - id: dra-api-write
+    uri: /api/*
+    methods: [POST, PUT, PATCH, DELETE]
+    upstream_id: dra-backend
+    plugins:
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+      openid-connect:
+        client_id: "${{DRA_CLIENT_ID}}"
+        client_secret: "${{DRA_CLIENT_SECRET}}"
+        discovery: "http://keycloak:8080/realms/${{KEYCLOAK_REALM}}/.well-known/openid-configuration"
+        realm: "${{KEYCLOAK_REALM}}"
+        bearer_only: false
+        unauth_action: deny
+        use_jwks: true
+        use_pkce: true
+        redirect_uri: "${{DRA_PUBLIC_URL}}/oidc/callback"
+        session:
+          secret: "${{APISIX_SESSION_SECRET}}"
+        set_access_token_header: true
+        access_token_in_authorization_header: true
+        set_userinfo_header: false
+        set_id_token_header: false
+      authz-keycloak:
+        discovery: "http://keycloak:8080/realms/${{KEYCLOAK_REALM}}/.well-known/uma2-configuration"
+        client_id: "${{DRA_CLIENT_ID}}"
+        client_secret: "${{DRA_CLIENT_SECRET}}"
+        permissions: ["${{DRA_API_RESOURCE_ID}}"]
+        http_method_as_scope: true
+        policy_enforcement_mode: ENFORCING
 
   # Static UI assets are public: they contain no data and are the same for every user. Protecting
   # them would turn lazy-loaded chunks into login redirects after the session expired.

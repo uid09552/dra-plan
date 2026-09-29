@@ -12,6 +12,7 @@ nginx_config:
   # Environment variables used in apisix.yaml via ${{VAR}}.
   envs:
     - KEYCLOAK_REALM
+    - DRA_API_RESOURCE_ID
     - APISIX_CLIENT_ID
     - APISIX_CLIENT_SECRET
     - DRA_BACKEND_HOST
@@ -19,6 +20,7 @@ nginx_config:
     - DRA_UI_HOST
     - DRA_UI_PORT
     - DRA_PUBLIC_URL
+    - UI_URL
     - DRA_CLIENT_ID
     - DRA_CLIENT_SECRET
     - APISIX_SESSION_SECRET
