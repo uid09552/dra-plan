@@ -85,6 +85,18 @@ pub struct ServeArgs {
     #[arg(long, env = "DRA_DEV_TENANT", default_value = "demo")]
     pub dev_tenant: String,
 
+    /// Expected OIDC issuer for non-dev JWT authentication.
+    #[arg(long, env = "DRA_OIDC_ISSUER")]
+    pub oidc_issuer: Option<String>,
+
+    /// Keycloak JWKS URL used to verify access-token signatures.
+    #[arg(long, env = "DRA_OIDC_JWKS_URL")]
+    pub oidc_jwks_url: Option<String>,
+
+    /// Required access-token audience for this API.
+    #[arg(long, env = "DRA_OIDC_AUDIENCE")]
+    pub oidc_audience: Option<String>,
+
     /// Apply pending migrations on startup (always on in dev mode).
     #[arg(long, env = "DRA_MIGRATE_ON_START")]
     pub migrate_on_start: bool,

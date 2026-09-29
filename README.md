@@ -55,7 +55,7 @@ What is built and what is still open is tracked in
 | Database | PostgreSQL 17 with forced row-level security and an audit trigger |
 | API | REST, contract first: [`api/openapi.yaml`](api/openapi.yaml); MCP endpoint `/mcp` |
 | Frontend | Angular 21 (standalone, signals, zoneless) with Angular Material 3 |
-| Identity / gateway | Keycloak (organizations = tenants) and APISIX (prepared) |
+| Identity / gateway | Keycloak (organizations = tenants), APISIX gateway, backend JWT validation |
 | Docs | Markdown knowledge base in [`docs/`](docs/README.md), including ADRs |
 
 ```

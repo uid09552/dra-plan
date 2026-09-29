@@ -57,7 +57,20 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             tenant_slug: args.dev_tenant.clone(),
         }
     } else {
-        AuthMode::Disabled
+        AuthMode::Jwt {
+            issuer: args
+                .oidc_issuer
+                .clone()
+                .context("DRA_OIDC_ISSUER is required when dev mode is disabled")?,
+            jwks_url: args
+                .oidc_jwks_url
+                .clone()
+                .context("DRA_OIDC_JWKS_URL is required when dev mode is disabled")?,
+            audience: args
+                .oidc_audience
+                .clone()
+                .context("DRA_OIDC_AUDIENCE is required when dev mode is disabled")?,
+        }
     };
     let router = bootstrap::build_router(db, auth, &http).await?;
 

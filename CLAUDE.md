@@ -32,7 +32,7 @@ Product requirements: [docs/requirements/README.md](docs/requirements/README.md)
 | Frontend | Angular 21 (standalone, signals, zoneless) + Angular Material 3; Bootstrap grid/utilities for layout only |
 | Docs     | Markdown + YAML frontmatter knowledge base in `docs/` |
 
-Still open, so ask before assuming (see [docs/overview/open-questions.md](docs/overview/open-questions.md)): AI provider, backend JWT validation (Keycloak is set up, but the backend still uses the `--dev-mode` mock), deployment target, Angular client generator.
+Still open, so ask before assuming (see [docs/overview/open-questions.md](docs/overview/open-questions.md)): AI provider, multi-organization tenant selection, deployment target, Angular client generator. The backend validates Keycloak JWTs and `dra-viewer`/`dra-admin` roles when `DRA_DEV_MODE=false`; the local Compose profile defaults to dev mode.
 
 ## Repository layout
 

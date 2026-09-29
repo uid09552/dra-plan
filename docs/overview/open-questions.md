@@ -4,7 +4,7 @@ type: overview
 status: active
 tags: [decisions, backlog]
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-29
 related: [architecture-overview]
 ---
 
@@ -15,7 +15,7 @@ Decisions that are not made yet. When one is resolved, record an ADR in `docs/ad
 | # | Question | Options / notes |
 |---|----------|-----------------|
 | 3 | AI provider and integration | Hosted LLM API (for example Claude), self-hosted model. The `AiProvider` port exists; applying accepted proposals is not implemented yet. |
-| 4 | Authorization and backend token validation | Keycloak is the identity provider (see [[0010-keycloak-organizations-apisix]]). Open: the backend JWT adapter (the `tenant` claim → tenant), tenant selection for users in several organizations, and where tenant roles live (Keycloak roles or app membership). Currently mocked (`--dev-mode`). |
+| 4 | Multi-organization tenant selection | Backend JWT validation maps Keycloak's `tenant` claim and `dra-viewer`/`dra-admin` realm roles when dev mode is disabled. Users with several organization memberships still need an explicit tenant-selection flow. |
 | 5 | Deployment target | Container/Kubernetes, single binary, on-prem. **The tool must stay available when the protected services are down.** |
 | 6 | Offline / degraded mode | Static export, local replica, PWA offline cache |
 | 8 | Angular client generator | openapi-generator (typescript-angular), ng-openapi-gen, orval. The UI uses a small hand-written typed client for now. |

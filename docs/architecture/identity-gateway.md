@@ -74,13 +74,17 @@ MCP client ─► APISIX :9080 /mcp (bearer token) ─────────�
 APISIX is the **OIDC client for the browser** (backend-for-frontend): it runs the authorization code flow
 with PKCE against `DRA_CLIENT_ID` (confidential), keeps the tokens in an encrypted session cookie
 (`APISIX_SESSION_SECRET`) and forwards the access token to the backend. The UI therefore holds no tokens.
+With backend dev mode disabled, the backend independently validates each JWT signature, issuer, audience,
+expiry, tenant and API role; it does not trust role headers from the gateway.
 
 | Route | Paths | Auth |
 |-------|-------|------|
 | `keycloak` | `/auth/*` | Proxies to Keycloak; APISIX strips the `/auth` prefix. |
 | `dra-health` | `GET /api/v1/health` | public |
 | `dra-mcp` | `/mcp` | bearer token only (`APISIX_CLIENT_ID`, JWKS): AI/MCP clients. Missing or invalid → 401. |
-| `dra-api` | `/api/*` | browser session **or** bearer token; otherwise **401** (`unauth_action: deny`, never a redirect for XHR). The access token is forwarded as `Authorization: Bearer`. |
+| `dra-api-options` | `/api/*` `OPTIONS` | CORS preflight, no user token required. |
+| `dra-api-read` | `/api/*` `GET`, `HEAD` | OIDC token/session plus Keycloak role/method authorization (`dra-viewer` or `dra-admin`). |
+| `dra-api-write` | `/api/*` `POST`, `PUT`, `PATCH`, `DELETE` | OIDC token/session plus `dra-admin` authorization. |
 | `dra-ui-assets` | `*.js`, `*.css`, fonts, icons | public: no data, identical for all users (lazy chunks must load after a session expired) |
 | `dra-ui` | everything else | session required, otherwise **302 to the Keycloak login** and back to the requested URL. Handles `/oidc/callback` and `/logout` (ends the Keycloak session, then returns to `DRA_PUBLIC_URL`). |
 
@@ -95,10 +99,10 @@ The *Sign out* menu item links to `/logout`.
 
 ## Status and next steps
 
-- The backend still uses the **dev-mode mock** for authentication. It does not read the token yet. Next step:
-  a JWT `Authenticator` adapter that validates the token (JWKS, `iss`, `aud` = `DRA_CLIENT_ID`) and maps the
-  `tenant` claim (organization alias or `tenant_id` attribute → tenant slug) to the internal tenant id.
-  Users in several organizations will need an explicit tenant selection.
+- The backend validates Keycloak JWT signature (JWKS), `iss`, `aud`, `exp`, the `tenant` claim and
+  `realm_access.roles` when `DRA_DEV_MODE=false`. `dra-viewer` is read-only (`GET`, `HEAD`, `OPTIONS`);
+  `dra-admin` can use all methods. Compose defaults to JWT validation; `make run` explicitly enables the
+  local dev mock. Users in multiple organizations still need an explicit tenant-selection flow.
 - Production: TLS everywhere, disable direct access grants, and run Keycloak with `start` (not `start-dev`).
 
 ## Commands

@@ -8,7 +8,7 @@ use axum::body::Body;
 use axum::http::{HeaderMap, Method, Request, StatusCode};
 use dra_server::bootstrap::{self, AuthMode};
 use dra_server::features::tenants::domain::TenantSettingsPatch;
-use dra_server::shared::auth::Authenticated;
+use dra_server::shared::auth::{AccessRole, Authenticated};
 use dra_server::shared::infra::Db;
 use dra_server::shared::kernel::{Principal, TenantId, TenantRole};
 use dra_server::shared::web::layers::HttpSettings;
@@ -96,6 +96,7 @@ pub async fn app() -> TestApp {
         .expect("create tenant");
     let identity = Authenticated {
         principal,
+        access_role: AccessRole::Admin,
         tenant_id: Some(tenant.id()),
     };
     let router = bootstrap::build_router(

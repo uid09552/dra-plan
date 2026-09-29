@@ -19,7 +19,7 @@ AI agents (Claude and other MCP clients) use the backend through the **Model Con
   response. There are no server-initiated streams, so `GET /mcp` returns `405`. Batches are rejected.
 - Methods: `initialize`, `ping`, `tools/list`, `tools/call`. Notifications get `202 Accepted`.
 - Protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05` are accepted (echoed back).
-- **Same authentication and tenant scoping** as the REST API (currently the dev-mode mock).
+- **Same authentication and tenant scoping** as the REST API (Keycloak JWT validation outside dev mode).
 - **`Origin` check** (DNS-rebinding protection required by the MCP spec): requests with an `Origin`
   header must match the CORS allowlist (`--cors-origins`); otherwise `403`.
 - Tool errors (validation, gates, conflicts) are returned as tool results with `isError: true` and the

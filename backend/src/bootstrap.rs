@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use anyhow::Context;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -61,20 +62,24 @@ use crate::features::{
 };
 use crate::mcp::{self, McpConfig};
 use crate::shared::auth::{
-    self, Authenticated, Authenticator, DEV_USER, DevAuthenticator, DisabledAuthenticator,
+    self, Authenticated, Authenticator, DEV_USER, DevAuthenticator, JwtAuthenticator,
     StaticAuthenticator,
 };
 use crate::shared::infra::Db;
 use crate::shared::web::API_BASE;
 use crate::shared::web::layers::{self, HttpSettings};
 
-/// How requests are authenticated. Real JWT validation is not implemented yet.
+/// How requests are authenticated.
 #[derive(Debug, Clone)]
 pub enum AuthMode {
     /// `--dev-mode`: fixed admin `dev-user`, default tenant created on startup.
     Dev { tenant_slug: String },
-    /// Fail closed: every authenticated endpoint returns 401.
-    Disabled,
+    /// Validate Keycloak access tokens and enforce their API roles.
+    Jwt {
+        issuer: String,
+        jwks_url: String,
+        audience: String,
+    },
     /// Fixed identity (tests).
     Static(Authenticated),
 }
@@ -273,12 +278,15 @@ pub async fn build_router(
                 lookup: Arc::new(PgTenantRepository(db)),
             })
         }
-        AuthMode::Disabled => {
-            tracing::warn!(
-                "authentication is not implemented yet; all API calls are rejected (use --dev-mode)"
-            );
-            Arc::new(DisabledAuthenticator)
-        }
+        AuthMode::Jwt {
+            issuer,
+            jwks_url,
+            audience,
+        } => Arc::new(
+            JwtAuthenticator::new(issuer, jwks_url, audience, Arc::new(PgTenantRepository(db)))
+                .await
+                .context("cannot initialize Keycloak JWT authentication")?,
+        ),
         AuthMode::Static(identity) => Arc::new(StaticAuthenticator(identity)),
     };
 

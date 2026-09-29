@@ -24,8 +24,10 @@ itself is still open ([[open-questions]] #5).
   variables or arguments ([[backend]]); the image sets `DRA_LISTEN_ADDR=0.0.0.0:8090` and JSON logs.
 - Migrations are embedded in the binary; set `DRA_MIGRATE_ON_START=true` or run `dra-server migrate`.
 - `HEALTHCHECK` runs `dra-server healthcheck` (no shell or curl in distroless).
-- Backend JWT validation is not implemented yet: without `DRA_DEV_MODE=true` every API call returns 401
-  (fail closed). Dev mode mocks authentication — never expose it on a shared network.
+- With `DRA_DEV_MODE=false`, the backend validates Keycloak JWT signatures, issuer, audience, expiry,
+  tenant and realm role using `DRA_OIDC_ISSUER`, `DRA_OIDC_JWKS_URL` and `DRA_OIDC_AUDIENCE`. Dev mode
+  bypasses authentication as a local admin — never expose it on a shared network. Compose defaults to
+  `DRA_DEV_MODE=false`; `make run` explicitly uses dev mode for host-based development.
 
 ## UI image
 

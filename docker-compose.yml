@@ -131,13 +131,18 @@ services:
       DRA_DATABASE_URL: postgres://dra:${DRA_DB_PASSWORD:-dra}@postgres:5432/dra
       DRA_LISTEN_ADDR: 0.0.0.0:8090
       DRA_MIGRATE_ON_START: "true"
-      # Backend JWT validation is not implemented yet; without dev mode every API call returns 401.
-      # Dev mode mocks authentication: only for local use, never on a shared network.
-      DRA_DEV_MODE: ${DRA_DEV_MODE:-true}
+      # Dev mode bypasses Keycloak authentication and grants a local admin identity. Set false
+      # outside local development to validate token signature, issuer, audience, tenant and role.
+      DRA_DEV_MODE: ${DRA_DEV_MODE:-false}
+      DRA_OIDC_ISSUER: ${DRA_OIDC_ISSUER:-${KEYCLOAK_PUBLIC_URL:-http://localhost:9080/auth}/realms/${KEYCLOAK_REALM:-dra}}
+      DRA_OIDC_JWKS_URL: ${DRA_OIDC_JWKS_URL:-http://keycloak:8080/realms/${KEYCLOAK_REALM:-dra}/protocol/openid-connect/certs}
+      DRA_OIDC_AUDIENCE: ${DRA_OIDC_AUDIENCE:-${DRA_CLIENT_ID:-dra-workflow}}
       DRA_LOG_FORMAT: json
     networks: [drp]
     depends_on:
       postgres:
+        condition: service_healthy
+      keycloak:
         condition: service_healthy
 
   ui:
