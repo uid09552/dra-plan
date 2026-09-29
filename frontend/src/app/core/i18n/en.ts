@@ -213,7 +213,7 @@ export const en = {
         q3: 'Which findings became action items, and are they closed?',
       },
       service: {
-        title: 'Service & components',
+        title: 'Service description',
         intro:
           'Describe the IT service, its owners, how important its availability is and — optionally — its components.',
         q1: 'What does the service do for the business, and who uses it?',
@@ -229,7 +229,7 @@ export const en = {
         q3: 'What must keep working in any case (minimum operating level)?',
       },
       dependencies: {
-        title: 'Dependencies & RTO/RPO',
+        title: 'Dependencies',
         intro: 'What the components need to run, and their recovery objectives.',
         q1: 'What does each component depend on (databases, platforms, suppliers, people)?',
         q2: 'Do critical dependencies have their own DR plan and a compatible RTO?',

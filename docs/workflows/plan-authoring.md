@@ -4,7 +4,7 @@ type: workflow
 status: draft
 tags: [workflow, authoring, ai, nist, bsi]
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-29
 related: [dr-plan-model, standards-mapping, scenario-catalog, recovery-execution]
 ---
 
@@ -42,20 +42,22 @@ flowchart LR
 
 Standards alignment for each phase is in [[standards-mapping]].
 
-### In the UI: the guide
+### In the UI: Guide tabs
 
-The UI groups the 15 steps into 7 guide stages (breadcrumb). The stage order follows the data a user has
-at hand (the BIA comes before mapping dependencies), while the step gates keep their order:
+The UI groups the 15 steps into 7 Guide tabs. The tabs follow the editing flow; the workflow step
+numbers and gates remain authoritative and can be completed independently:
 
 | Guide stage | Steps |
 |-------------|-------|
-| Service & components (optional) | 1 |
-| Business impact (BIA) | 3 |
+| Service description & components (optional) | 1 |
 | Dependencies & RTO/RPO | 2, 7 |
+| Business impact (BIA) | 3 |
 | Scenarios (mind map, risk matrix) | 4, 5, 6 |
 | Mitigations | 8, 9 |
 | Plan & documentation | 10, 11, 12 |
 | Test & improve | 13, 14, 15 |
+
+Compliance, the handbook preview and plan versions follow the Guide as review tabs.
 
 Gate warnings for step 8 include `MITIGATION_NOT_IMPLEMENTED` and `MITIGATION_NEVER_TESTED`
 (recovery capability). Readiness and "next actions" are derived from the gates; see [[feature-status]].

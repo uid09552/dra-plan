@@ -2,7 +2,7 @@ import { Scenario, WorkflowState } from '../../../core/api/models';
 import { layoutGraph } from './dependency-map';
 import { riskBand } from './risk-matrix';
 import { buildMindTree, layoutMindTree } from './scenario-map';
-import { stageState } from './service-guide';
+import { STAGES, stageState } from './service-guide';
 
 function scenario(id: string, extra: Partial<Scenario> = {}): Scenario {
   return { id, title: id, status: 'brainstormed', serviceId: 's', ...extra } as Scenario;
@@ -79,5 +79,17 @@ describe('stageState', () => {
     expect(stageState(['s0', 's1'], workflow(['complete', 'complete']))).toBe('done');
     expect(stageState(['s0'], workflow(['in_progress'], true))).toBe('blocked');
     expect(stageState(['s0'], workflow(['in_progress']))).toBe('open');
+  });
+
+  it('keeps Guide tabs in the editing order', () => {
+    expect(STAGES.map((stage) => stage.key)).toEqual([
+      'service',
+      'dependencies',
+      'bia',
+      'scenarios',
+      'mitigations',
+      'plan',
+      'validate',
+    ]);
   });
 });

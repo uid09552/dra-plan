@@ -20,6 +20,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
+import { MatTabsModule } from '@angular/material/tabs';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { concatMap, forkJoin, from, map, Observable, of, switchMap, toArray } from 'rxjs';
 
@@ -32,7 +33,6 @@ import {
   Microservice,
   Person,
   RecoveryObjective,
-  Scenario,
   ServiceReadiness,
   Tenant,
   WorkflowState,
@@ -44,14 +44,16 @@ import { ContextMenu, MenuItem } from '../../../core/ui/context-menu';
 import { EditDialogData, EditResult, openConfirm, openEdit } from '../../../core/ui/edit-dialog';
 import { StepStatusChip } from '../status-chips';
 import { ComponentEditor } from './component-editor';
+import { DependencyMap } from './dependency-map';
 import { MeasuresView } from './measures-view';
 import { RolesCommunication } from './roles-communication';
+import { ScenarioMap } from './scenario-map';
 
 /** Wizard stages and the workflow steps (gates) each one covers. */
 export const STAGES = [
   { key: 'service', icon: 'badge', steps: ['define_service'] },
-  { key: 'bia', icon: 'monitoring', steps: ['business_impact'] },
   { key: 'dependencies', icon: 'hub', steps: ['map_dependencies', 'recovery_objectives'] },
+  { key: 'bia', icon: 'monitoring', steps: ['business_impact'] },
   {
     key: 'scenarios',
     icon: 'account_tree',
@@ -66,8 +68,7 @@ export type StageKey = (typeof STAGES)[number]['key'];
 export type StageState = 'done' | 'blocked' | 'open';
 
 /** Tabs of the service page the guide can link to. */
-export type ServiceTab =
-  'scenarios' | 'measures' | 'dependencies' | 'handbook' | 'compliance' | 'plans';
+export type ServiceTab = 'handbook' | 'compliance';
 
 interface GuideData {
   service: ItService;
@@ -77,7 +78,6 @@ interface GuideData {
   microservices: Microservice[];
   dependencies: Dependency[];
   objectives: RecoveryObjective[];
-  scenarios: Scenario[];
   workflow: WorkflowState;
   readiness: ServiceReadiness;
 }
@@ -116,12 +116,15 @@ const STATE_ICON: Partial<Record<StageState, string>> = { done: 'check_circle', 
     MatInputModule,
     MatProgressBarModule,
     MatSelectModule,
+    MatTabsModule,
     MatTooltipModule,
     TranslatePipe,
     ContextMenu,
     StepStatusChip,
+    DependencyMap,
     MeasuresView,
     RolesCommunication,
+    ScenarioMap,
   ],
   templateUrl: './service-guide.html',
   styleUrl: './service-guide.scss',
@@ -143,22 +146,16 @@ export class ServiceGuide {
     params: () => ({ id: this.serviceId(), key: this.reloadKey() }),
     stream: ({ params }) => this.load(params.id),
   });
-  /** Keeps the previous data while reloading, so the wizard does not flicker. */
+  /** Keeps the previous data while reloading, so the editor does not flicker. */
   protected readonly data = linkedSignal<GuideData | undefined, GuideData | undefined>({
     source: () => this.resource.value(),
     computation: (value, previous) => value ?? previous?.value,
   });
   protected readonly loading = computed(() => this.resource.isLoading());
-  protected readonly suggestions = rxResource({
-    params: () => ({ id: this.serviceId(), key: this.reloadKey(), lang: this.i18n.lang() }),
-    stream: ({ params }) => this.api.scenarioSuggestions(params.id),
-  });
-
   protected readonly stages = computed(() => {
     const workflow = this.data()?.workflow;
-    return STAGES.map((stage, index) => ({
+    return STAGES.map((stage) => ({
       ...stage,
-      index,
       state: workflow ? stageState(stage.steps, workflow) : ('open' as StageState),
     }));
   });
@@ -169,8 +166,6 @@ export class ServiceGuide {
     const key = this.chosen() ?? stages.find((s) => s.state !== 'done')?.key ?? 'plan';
     return stages.find((s) => s.key === key) ?? stages[0];
   });
-  protected readonly next = computed(() => this.stages()[this.current().index + 1]);
-
   /** Issues of the current stage's workflow steps, blocking first. */
   protected readonly issues = computed<Issue[]>(() => {
     const steps: readonly string[] = this.current().steps;
@@ -231,15 +226,6 @@ export class ServiceGuide {
     Partial<Record<string, { rto?: number; rpo?: number }>>
   >({});
 
-  protected readonly scenarioCounts = computed(() => {
-    const list = (this.data()?.scenarios ?? []).filter((s) => s.status !== 'merged');
-    return {
-      total: list.length,
-      open: list.filter((s) => s.status === 'brainstormed').length,
-      selected: list.filter((s) => s.status === 'selected').length,
-      unrated: list.filter((s) => !s.likelihood || !s.impact).length,
-    };
-  });
   constructor() {
     effect(() => {
       const d = this.data();
@@ -312,13 +298,6 @@ export class ServiceGuide {
       ),
       { success: 'guide.stageCompleted', done: () => this.changed.emit() },
     );
-  }
-
-  protected continue(): void {
-    const next = this.next();
-    if (next) {
-      this.go(next.key);
-    }
   }
 
   // ── Stage 1 ──
@@ -604,15 +583,7 @@ export class ServiceGuide {
     });
   }
 
-  // ── Stage 4 ──
-  protected acceptSuggestion(templateId: string): void {
-    this.m.run(this.api.createScenario(this.serviceId(), { catalogTemplateId: templateId }), {
-      success: 'scenarioMap.added',
-      done: () => this.changed.emit(),
-    });
-  }
-
-  // ── Stage 6 ──
+  // ── Plan ──
   protected submitPlan(): void {
     this.m.run(this.api.submitPlan(this.serviceId()), {
       success: 'plans.submitted',
@@ -635,20 +606,12 @@ export class ServiceGuide {
           microservices: of(microservices),
           dependencies: perMs((m) => this.api.dependencies(m)),
           objectives: perMs((m) => this.api.objectives(m)),
-          scenarios: this.api.scenarios(id),
           workflow: this.api.workflow(id),
           readiness: this.api.serviceReadiness(id),
         });
       }),
     );
   }
-}
-
-function splitList(value: string): string[] {
-  return value
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
 }
 
 /** Drops empty strings so optional fields stay unset. */

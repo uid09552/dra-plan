@@ -55,48 +55,6 @@
       </div>
     </mat-tab>
 
-    <!-- Scenario mind map & risk matrix -->
-    <mat-tab>
-      <ng-template mat-tab-label
-        ><mat-icon class="tab-icon">account_tree</mat-icon
-        >{{ 'services.scenarios' | t }}</ng-template
-      >
-      <ng-template matTabContent>
-        <div class="tab">
-          <app-scenario-map
-            [serviceId]="id()"
-            [serviceName]="service.value()?.name ?? ''"
-            [reloadKey]="reloadKey()"
-            (changed)="reload()"
-          />
-        </div>
-      </ng-template>
-    </mat-tab>
-
-    <!-- Measures (recovery strategies) -->
-    <mat-tab>
-      <ng-template mat-tab-label
-        ><mat-icon class="tab-icon">shield</mat-icon>{{ 'measures.title' | t }}</ng-template
-      >
-      <ng-template matTabContent>
-        <div class="tab">
-          <app-measures-view [serviceId]="id()" [reloadKey]="reloadKey()" (changed)="reload()" />
-        </div>
-      </ng-template>
-    </mat-tab>
-
-    <!-- Dependency map -->
-    <mat-tab>
-      <ng-template mat-tab-label
-        ><mat-icon class="tab-icon">hub</mat-icon>{{ 'dependencies.title' | t }}</ng-template
-      >
-      <ng-template matTabContent>
-        <div class="tab">
-          <app-dependency-map [serviceId]="id()" [reloadKey]="reloadKey()" (changed)="reload()" />
-        </div>
-      </ng-template>
-    </mat-tab>
-
     <!-- Compliance -->
     <mat-tab>
       <ng-template mat-tab-label

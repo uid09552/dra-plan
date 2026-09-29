@@ -14,26 +14,19 @@ import { injectMutation } from '../../core/http/mutation';
 import { TranslatePipe } from '../../core/i18n/i18n';
 import { PlanStatusChip } from './status-chips';
 import { ComplianceView } from './tabs/compliance-view';
-import { DependencyMap } from './tabs/dependency-map';
 import { HandbookPreview } from './tabs/handbook-preview';
-import { MeasuresView } from './tabs/measures-view';
-import { ScenarioMap } from './tabs/scenario-map';
 import { ServiceGuide, ServiceTab } from './tabs/service-guide';
 
 /** Tab order in service-detail.html. */
-const TAB_INDEX: Record<ServiceTab | 'guide', number> = {
+const TAB_INDEX: Record<ServiceTab | 'guide' | 'plans', number> = {
   guide: 0,
-  scenarios: 1,
-  measures: 2,
-  dependencies: 3,
-  compliance: 4,
-  handbook: 5,
-  plans: 6,
+  compliance: 1,
+  handbook: 2,
+  plans: 3,
 };
 
 /**
- * One IT service: the guide (all workflow steps with editing) plus views that visualize and
- * check the plan (scenario mind map, dependency map, compliance, handbook, plan versions).
+ * One IT service: the Guide owns plan editing; following tabs review compliance, handbook and versions.
  */
 @Component({
   selector: 'app-service-detail',
@@ -49,11 +42,8 @@ const TAB_INDEX: Record<ServiceTab | 'guide', number> = {
     TranslatePipe,
     PlanStatusChip,
     ServiceGuide,
-    ScenarioMap,
-    DependencyMap,
     ComplianceView,
     HandbookPreview,
-    MeasuresView,
   ],
   templateUrl: './service-detail.html',
   styleUrl: './service-detail.scss',

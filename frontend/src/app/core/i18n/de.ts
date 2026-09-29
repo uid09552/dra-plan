@@ -218,7 +218,7 @@ export const de: Texts<typeof en> = {
         q3: 'Welche Erkenntnisse wurden zu Maßnahmen, und sind diese erledigt?',
       },
       service: {
-        title: 'Service & Komponenten',
+        title: 'Servicebeschreibung',
         intro:
           'Beschreiben Sie den IT-Service, die Verantwortlichen, wie wichtig seine Verfügbarkeit ist und – optional – seine Komponenten.',
         q1: 'Was leistet der Service für das Geschäft, und wer nutzt ihn?',
@@ -234,7 +234,7 @@ export const de: Texts<typeof en> = {
         q3: 'Was muss in jedem Fall weiterlaufen (Notbetriebsniveau)?',
       },
       dependencies: {
-        title: 'Abhängigkeiten & RTO/RPO',
+        title: 'Abhängigkeiten',
         intro: 'Was die Komponenten zum Betrieb brauchen, und ihre Wiederanlaufziele.',
         q1: 'Wovon hängt jede Komponente ab (Datenbanken, Plattformen, Lieferanten, Personal)?',
         q2: 'Haben kritische Abhängigkeiten einen eigenen Notfallplan und eine passende RTO?',

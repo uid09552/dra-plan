@@ -16,268 +16,435 @@
     </div>
   </div>
 
-  <!-- Breadcrumb -->
-  <nav class="crumbs" [attr.aria-label]="'guide.title' | t">
-    @for (s of stages(); track s.key; let last = $last) {
-      <button
-        type="button"
-        class="crumb"
-        [class.current]="s.key === current().key"
-        [class]="s.state"
+  <nav mat-tab-nav-bar [tabPanel]="stagePanel" [attr.aria-label]="'guide.title' | t">
+    @for (s of stages(); track s.key) {
+      <a
+        mat-tab-link
+        href="#"
+        [active]="s.key === current().key"
         [attr.aria-current]="s.key === current().key ? 'step' : null"
-        (click)="go(s.key)"
+        (click)="go(s.key); $event.preventDefault()"
       >
         <mat-icon>{{ crumbIcon(s.state, s.icon) }}</mat-icon>
-        <span class="d-none d-md-inline">{{ 'guide.stages.' + s.key + '.title' | t }}</span>
-        <span class="d-md-none">{{ s.index + 1 }}</span>
-      </button>
-      @if (!last) {
-        <mat-icon class="sep" aria-hidden="true">chevron_right</mat-icon>
-      }
+        {{ 'guide.stages.' + s.key + '.title' | t }}
+      </a>
     }
   </nav>
 
-  @let stage = current();
-  <mat-card appearance="outlined" class="stage">
-    <mat-card-header>
-      <mat-icon mat-card-avatar class="avatar">{{ stage.icon }}</mat-icon>
-      <mat-card-title>
-        {{ stage.index + 1 }}. {{ 'guide.stages.' + stage.key + '.title' | t }}
-      </mat-card-title>
-      <mat-card-subtitle>{{ 'guide.stages.' + stage.key + '.intro' | t }}</mat-card-subtitle>
-    </mat-card-header>
-    <mat-card-content>
-      <div class="row g-3">
-        <!-- Guided questions -->
-        <div class="col-12 col-lg-4">
-          <div class="questions">
-            <h3><mat-icon>help</mat-icon>{{ 'guide.questions' | t }}</h3>
-            <ol>
-              <li>{{ 'guide.stages.' + stage.key + '.q1' | t }}</li>
-              <li>{{ 'guide.stages.' + stage.key + '.q2' | t }}</li>
-              <li>{{ 'guide.stages.' + stage.key + '.q3' | t }}</li>
-            </ol>
-            <div class="muted small">
-              {{ 'guide.coversSteps' | t }}:
-              @for (k of stage.steps; track k; let l = $last) {
-                {{ stepTitle(k) }}{{ l ? '' : ', ' }}
-              }
-            </div>
-          </div>
-        </div>
-
-        <!-- Stage content -->
-        <div class="col-12 col-lg-8">
-          @for (e of m.issues(); track e) {
-            <div class="status error mb-2">{{ e }}</div>
-          }
-
-          @switch (stage.key) {
-            @case ('service') {
-              <form [formGroup]="serviceForm" (ngSubmit)="saveService()" class="row g-2">
-                <mat-form-field class="col-12">
-                  <mat-label>{{ 'common.name' | t }}</mat-label>
-                  <input matInput formControlName="name" required />
-                  <mat-hint>{{ 'guide.required' | t }}</mat-hint>
-                </mat-form-field>
-                <mat-form-field class="col-12">
-                  <mat-label>{{ 'common.description' | t }}</mat-label>
-                  <textarea matInput rows="3" formControlName="description"></textarea>
-                  <mat-hint
-                    >{{ 'guide.optional' | t }} ·
-                    {{ 'guide.stages.service.descriptionHint' | t }}</mat-hint
-                  >
-                </mat-form-field>
-                @for (owner of ['businessOwnerId', 'technicalOwnerId']; track owner) {
-                  <div class="col-12 col-md-6 d-flex gap-1 align-items-start">
-                    <mat-form-field class="flex-grow-1">
-                      <mat-label>{{ 'guide.owners.' + owner | t }}</mat-label>
-                      <mat-select [formControlName]="owner">
-                        <mat-option value="">{{ 'common.none' | t }}</mat-option>
-                        @for (p of d.persons; track p.id) {
-                          <mat-option [value]="p.id"
-                            >{{ p.name }}{{ p.team ? ' · ' + p.team : '' }}</mat-option
-                          >
-                        }
-                      </mat-select>
-                      <mat-hint>{{ 'guide.owners.hint' | t }}</mat-hint>
-                    </mat-form-field>
-                    <button
-                      mat-icon-button
-                      type="button"
-                      class="mt-2"
-                      (click)="newOwner($any(owner))"
-                      [matTooltip]="'guide.owners.newPerson' | t"
-                      [attr.aria-label]="'guide.owners.newPerson' | t"
-                    >
-                      <mat-icon>person_add</mat-icon>
-                    </button>
-                  </div>
-                }
-                <mat-form-field class="col-12 col-md-6">
-                  <mat-label>{{ 'services.protection' | t }}</mat-label>
-                  <mat-select formControlName="protectionRequirementAvailability" required>
-                    @for (p of ['normal', 'high', 'very_high']; track p) {
-                      <mat-option [value]="p">{{ 'guide.protection.' + p | t }}</mat-option>
-                    }
-                  </mat-select>
-                  <mat-hint>{{ 'guide.required' | t }} · BSI 200-2</mat-hint>
-                </mat-form-field>
-                <mat-form-field class="col-12 col-md-6">
-                  <mat-label>{{ 'services.impactLevel' | t }}</mat-label>
-                  <mat-select formControlName="impactLevel">
-                    <mat-option value="">{{ 'common.none' | t }}</mat-option>
-                    @for (p of ['low', 'moderate', 'high']; track p) {
-                      <mat-option [value]="p">{{ 'guide.impact.' + p | t }}</mat-option>
-                    }
-                  </mat-select>
-                  <mat-hint>{{ 'guide.optional' | t }} · NIST FIPS 199</mat-hint>
-                </mat-form-field>
-                <div class="col-12 mt-3">
-                  <button
-                    mat-flat-button
-                    type="submit"
-                    [disabled]="serviceForm.invalid || m.busy()"
-                  >
-                    {{ 'common.save' | t }}
-                  </button>
-                </div>
-              </form>
-
-              <!-- Components (optional) -->
-              <div class="d-flex flex-wrap align-items-center gap-2 mt-4">
-                <h4 class="sub m-0 flex-grow-1">{{ 'guide.components.title' | t }}</h4>
-                <button mat-stroked-button (click)="addComponent()" [disabled]="m.busy()">
-                  <mat-icon>add</mat-icon>{{ 'guide.components.add' | t }}
-                </button>
-              </div>
-              <p class="muted small">
-                {{ 'guide.optional' | t }} · {{ 'guide.components.hint' | t }}
-              </p>
-              <div class="table-scroll mb-2">
-                <table class="grid-table">
-                  <thead>
-                    <tr>
-                      <th>{{ 'common.name' | t }}</th>
-                      <th>{{ 'components.platform' | t }}</th>
-                      <th>{{ 'components.hosting' | t }}</th>
-                      <th>{{ 'guide.components.dataStores' | t }}</th>
-                      <th class="actions"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (ms of d.microservices; track ms.id) {
-                      <tr
-                        (contextmenu)="menu.open($event, msMenu(ms))"
-                        (dblclick)="editComponent(ms)"
-                      >
-                        <td>
-                          {{ ms.name }}
-                          @if (ms.isDefault) {
-                            <span
-                              class="status info ms-1"
-                              [matTooltip]="'guide.components.defaultHint' | t"
-                              >{{ 'guide.components.default' | t }}</span
-                            >
-                          }
-                        </td>
-                        <td>{{ ms.platform ?? '–' }}</td>
-                        <td>{{ ms.hostingLocation ?? '–' }}</td>
-                        <td>{{ ms.dataStores.join(', ') || '–' }}</td>
-                        <td class="actions">
-                          <button
-                            mat-icon-button
-                            (click)="menu.open($event, msMenu(ms))"
-                            [attr.aria-label]="'common.actions' | t"
-                          >
-                            <mat-icon>more_vert</mat-icon>
-                          </button>
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
+  <mat-tab-nav-panel #stagePanel>
+    @let stage = current();
+    <mat-card appearance="outlined" class="stage">
+      <mat-card-header>
+        <mat-icon mat-card-avatar class="avatar">{{ stage.icon }}</mat-icon>
+        <mat-card-title>
+          {{ 'guide.stages.' + stage.key + '.title' | t }}
+        </mat-card-title>
+        <mat-card-subtitle>{{ 'guide.stages.' + stage.key + '.intro' | t }}</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content>
+        <div class="row g-3">
+          <div class="col-12">
+            @for (e of m.issues(); track e) {
+              <div class="status error mb-2">{{ e }}</div>
             }
 
-            @case ('bia') {
-              <form [formGroup]="biaForm" (ngSubmit)="saveBia()" class="row g-2">
-                <mat-form-field class="col-12 col-md-4">
-                  <mat-label>{{ 'guide.bia.mtpd' | t }}</mat-label>
-                  <input
-                    matInput
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    formControlName="mtpdHours"
-                    required
-                  />
-                  <span matTextSuffix>h</span>
-                  <mat-hint>{{ 'guide.required' | t }}</mat-hint>
-                </mat-form-field>
-                <mat-form-field class="col-6 col-md-4">
-                  <mat-label>{{ 'guide.bia.rto' | t }}</mat-label>
-                  <input
-                    matInput
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    formControlName="rtoHours"
-                    required
-                  />
-                  <span matTextSuffix>h</span>
-                  <mat-hint>{{ 'guide.required' | t }} · ≤ MTPD</mat-hint>
-                </mat-form-field>
-                <mat-form-field class="col-6 col-md-4">
-                  <mat-label>{{ 'guide.bia.rpo' | t }}</mat-label>
-                  <input matInput type="number" min="0" formControlName="rpoMinutes" required />
-                  <span matTextSuffix>min</span>
-                  <mat-hint>{{ 'guide.required' | t }}</mat-hint>
-                </mat-form-field>
-                <mat-form-field class="col-12 col-md-6">
-                  <mat-label>{{ 'guide.bia.minimum' | t }}</mat-label>
-                  <textarea matInput rows="2" formControlName="minimumOperatingLevel"></textarea>
-                  <mat-hint>{{ 'guide.optional' | t }}</mat-hint>
-                </mat-form-field>
-                <mat-form-field class="col-12 col-md-6">
-                  <mat-label>{{ 'guide.bia.regulatory' | t }}</mat-label>
-                  <textarea matInput rows="2" formControlName="regulatoryRequirements"></textarea>
-                  <mat-hint>{{ 'guide.optional' | t }}</mat-hint>
-                </mat-form-field>
+            @switch (stage.key) {
+              @case ('service') {
+                <form [formGroup]="serviceForm" (ngSubmit)="saveService()" class="row g-2">
+                  <mat-form-field class="col-12">
+                    <mat-label>{{ 'common.name' | t }}</mat-label>
+                    <input matInput formControlName="name" required />
+                    <mat-hint>{{ 'guide.required' | t }}</mat-hint>
+                  </mat-form-field>
+                  <mat-form-field class="col-12">
+                    <mat-label>{{ 'common.description' | t }}</mat-label>
+                    <textarea matInput rows="3" formControlName="description"></textarea>
+                    <mat-hint
+                      >{{ 'guide.optional' | t }} ·
+                      {{ 'guide.stages.service.descriptionHint' | t }}</mat-hint
+                    >
+                  </mat-form-field>
+                  @for (owner of ['businessOwnerId', 'technicalOwnerId']; track owner) {
+                    <div class="col-12 col-md-6 d-flex gap-1 align-items-start">
+                      <mat-form-field class="flex-grow-1">
+                        <mat-label>{{ 'guide.owners.' + owner | t }}</mat-label>
+                        <mat-select [formControlName]="owner">
+                          <mat-option value="">{{ 'common.none' | t }}</mat-option>
+                          @for (p of d.persons; track p.id) {
+                            <mat-option [value]="p.id"
+                              >{{ p.name }}{{ p.team ? ' · ' + p.team : '' }}</mat-option
+                            >
+                          }
+                        </mat-select>
+                        <mat-hint>{{ 'guide.owners.hint' | t }}</mat-hint>
+                      </mat-form-field>
+                      <button
+                        mat-icon-button
+                        type="button"
+                        class="mt-2"
+                        (click)="newOwner($any(owner))"
+                        [matTooltip]="'guide.owners.newPerson' | t"
+                        [attr.aria-label]="'guide.owners.newPerson' | t"
+                      >
+                        <mat-icon>person_add</mat-icon>
+                      </button>
+                    </div>
+                  }
+                  <mat-form-field class="col-12 col-md-6">
+                    <mat-label>{{ 'services.protection' | t }}</mat-label>
+                    <mat-select formControlName="protectionRequirementAvailability" required>
+                      @for (p of ['normal', 'high', 'very_high']; track p) {
+                        <mat-option [value]="p">{{ 'guide.protection.' + p | t }}</mat-option>
+                      }
+                    </mat-select>
+                    <mat-hint>{{ 'guide.required' | t }} · BSI 200-2</mat-hint>
+                  </mat-form-field>
+                  <mat-form-field class="col-12 col-md-6">
+                    <mat-label>{{ 'services.impactLevel' | t }}</mat-label>
+                    <mat-select formControlName="impactLevel">
+                      <mat-option value="">{{ 'common.none' | t }}</mat-option>
+                      @for (p of ['low', 'moderate', 'high']; track p) {
+                        <mat-option [value]="p">{{ 'guide.impact.' + p | t }}</mat-option>
+                      }
+                    </mat-select>
+                    <mat-hint>{{ 'guide.optional' | t }} · NIST FIPS 199</mat-hint>
+                  </mat-form-field>
+                  <div class="col-12 mt-3">
+                    <button
+                      mat-flat-button
+                      type="submit"
+                      [disabled]="serviceForm.invalid || m.busy()"
+                    >
+                      {{ 'common.save' | t }}
+                    </button>
+                  </div>
+                </form>
 
-                <div class="col-12 mt-3">
-                  <h4 class="sub">{{ 'guide.bia.ratings' | t }}</h4>
-                  <p class="muted small">{{ 'guide.bia.ratingsHint' | t }}</p>
+                <!-- Components (optional) -->
+                <div class="d-flex flex-wrap align-items-center gap-2 mt-4">
+                  <h4 class="sub m-0 flex-grow-1">{{ 'guide.components.title' | t }}</h4>
+                  <button mat-stroked-button (click)="addComponent()" [disabled]="m.busy()">
+                    <mat-icon>add</mat-icon>{{ 'guide.components.add' | t }}
+                  </button>
+                </div>
+                <p class="muted small">
+                  {{ 'guide.optional' | t }} · {{ 'guide.components.hint' | t }}
+                </p>
+                <div class="table-scroll mb-2">
+                  <table class="grid-table">
+                    <thead>
+                      <tr>
+                        <th>{{ 'common.name' | t }}</th>
+                        <th>{{ 'components.platform' | t }}</th>
+                        <th>{{ 'components.hosting' | t }}</th>
+                        <th>{{ 'guide.components.dataStores' | t }}</th>
+                        <th class="actions"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (ms of d.microservices; track ms.id) {
+                        <tr
+                          (contextmenu)="menu.open($event, msMenu(ms))"
+                          (dblclick)="editComponent(ms)"
+                        >
+                          <td>
+                            {{ ms.name }}
+                            @if (ms.isDefault) {
+                              <span
+                                class="status info ms-1"
+                                [matTooltip]="'guide.components.defaultHint' | t"
+                                >{{ 'guide.components.default' | t }}</span
+                              >
+                            }
+                          </td>
+                          <td>{{ ms.platform ?? '–' }}</td>
+                          <td>{{ ms.hostingLocation ?? '–' }}</td>
+                          <td>{{ ms.dataStores.join(', ') || '–' }}</td>
+                          <td class="actions">
+                            <button
+                              mat-icon-button
+                              (click)="menu.open($event, msMenu(ms))"
+                              [attr.aria-label]="'common.actions' | t"
+                            >
+                              <mat-icon>more_vert</mat-icon>
+                            </button>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+
+              @case ('bia') {
+                <form [formGroup]="biaForm" (ngSubmit)="saveBia()" class="row g-2">
+                  <mat-form-field class="col-12 col-md-4">
+                    <mat-label>{{ 'guide.bia.mtpd' | t }}</mat-label>
+                    <input
+                      matInput
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      formControlName="mtpdHours"
+                      required
+                    />
+                    <span matTextSuffix>h</span>
+                    <mat-hint>{{ 'guide.required' | t }}</mat-hint>
+                  </mat-form-field>
+                  <mat-form-field class="col-6 col-md-4">
+                    <mat-label>{{ 'guide.bia.rto' | t }}</mat-label>
+                    <input
+                      matInput
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      formControlName="rtoHours"
+                      required
+                    />
+                    <span matTextSuffix>h</span>
+                    <mat-hint>{{ 'guide.required' | t }} · ≤ MTPD</mat-hint>
+                  </mat-form-field>
+                  <mat-form-field class="col-6 col-md-4">
+                    <mat-label>{{ 'guide.bia.rpo' | t }}</mat-label>
+                    <input matInput type="number" min="0" formControlName="rpoMinutes" required />
+                    <span matTextSuffix>min</span>
+                    <mat-hint>{{ 'guide.required' | t }}</mat-hint>
+                  </mat-form-field>
+                  <mat-form-field class="col-12 col-md-6">
+                    <mat-label>{{ 'guide.bia.minimum' | t }}</mat-label>
+                    <textarea matInput rows="2" formControlName="minimumOperatingLevel"></textarea>
+                    <mat-hint>{{ 'guide.optional' | t }}</mat-hint>
+                  </mat-form-field>
+                  <mat-form-field class="col-12 col-md-6">
+                    <mat-label>{{ 'guide.bia.regulatory' | t }}</mat-label>
+                    <textarea matInput rows="2" formControlName="regulatoryRequirements"></textarea>
+                    <mat-hint>{{ 'guide.optional' | t }}</mat-hint>
+                  </mat-form-field>
+
+                  <div class="col-12 mt-3">
+                    <h4 class="sub">{{ 'guide.bia.ratings' | t }}</h4>
+                    <p class="muted small">{{ 'guide.bia.ratingsHint' | t }}</p>
+                    <div class="table-scroll">
+                      <table class="grid-table">
+                        <thead>
+                          <tr>
+                            <th></th>
+                            @for (w of d.tenant.settings.impactTimeWindowsMinutes; track w) {
+                              <th>{{ windowLabel(w) }}</th>
+                            }
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (c of d.tenant.settings.impactCategories; track c) {
+                            <tr>
+                              <th>{{ 'guide.bia.categories.' + c | t }}</th>
+                              @for (w of d.tenant.settings.impactTimeWindowsMinutes; track w) {
+                                <td>
+                                  <mat-select
+                                    class="rating"
+                                    [value]="ratings()[ratingKey(c, w)] ?? null"
+                                    (selectionChange)="setRating(c, w, $event.value)"
+                                    [attr.aria-label]="c + ' ' + windowLabel(w)"
+                                    placeholder="–"
+                                  >
+                                    <mat-option [value]="null">–</mat-option>
+                                    @for (r of [1, 2, 3, 4]; track r) {
+                                      <mat-option [value]="r"
+                                        >{{ r }} – {{ 'risk.levels.' + r | t }}</mat-option
+                                      >
+                                    }
+                                  </mat-select>
+                                </td>
+                              }
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div class="col-12 mt-2">
+                    <button mat-flat-button type="submit" [disabled]="biaForm.invalid || m.busy()">
+                      {{ 'common.save' | t }}
+                    </button>
+                  </div>
+                </form>
+              }
+
+              @case ('dependencies') {
+                <app-dependency-map
+                  [serviceId]="serviceId()"
+                  [reloadKey]="reloadKey()"
+                  (changed)="changed.emit()"
+                />
+                <h4 class="sub">{{ 'guide.dependencies.title' | t }}</h4>
+                <div class="table-scroll mb-2">
+                  <table class="grid-table">
+                    <thead>
+                      <tr>
+                        <th>{{ 'guide.dependencies.from' | t }}</th>
+                        <th>{{ 'guide.dependencies.target' | t }}</th>
+                        <th>{{ 'guide.dependencies.kind' | t }}</th>
+                        <th>{{ 'guide.dependencies.criticality' | t }}</th>
+                        <th>{{ 'guide.dependencies.ownPlan' | t }}</th>
+                        <th class="actions"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (dep of d.dependencies; track dep.id) {
+                        <tr (contextmenu)="menu.open($event, dependencyMenu(dep))">
+                          <td>{{ msName(dep.microserviceId) }}</td>
+                          <td>{{ dep.targetName ?? msName(dep.targetMicroserviceId) }}</td>
+                          <td>{{ 'dependencies.kind.' + dep.kind | t }}</td>
+                          <td>{{ 'guide.dependencies.criticalities.' + dep.criticality | t }}</td>
+                          <td>{{ dep.hasOwnDrPlan ? '✓' : '–' }}</td>
+                          <td class="actions">
+                            <button
+                              mat-icon-button
+                              class="more"
+                              (click)="menu.open($event, dependencyMenu(dep))"
+                              [attr.aria-label]="'common.actions' | t"
+                            >
+                              <mat-icon>more_vert</mat-icon>
+                            </button>
+                          </td>
+                        </tr>
+                      } @empty {
+                        <tr>
+                          <td colspan="6" class="muted">{{ 'common.empty' | t }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                @if (d.microservices.length === 0) {
+                  <p class="status warn">{{ 'guide.dependencies.needAssets' | t }}</p>
+                } @else {
+                  <form
+                    [formGroup]="depForm"
+                    (ngSubmit)="addDependency()"
+                    class="row g-2 align-items-start"
+                  >
+                    <mat-form-field class="col-6 col-md-3">
+                      <mat-label>{{ 'guide.dependencies.from' | t }}</mat-label>
+                      <mat-select formControlName="microserviceId" required>
+                        @for (ms of d.microservices; track ms.id) {
+                          <mat-option [value]="ms.id">{{ ms.name }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                    <mat-form-field class="col-6 col-md-3">
+                      <mat-label>{{ 'guide.dependencies.kind' | t }}</mat-label>
+                      <mat-select formControlName="kind" required>
+                        @for (k of dependencyKinds; track k) {
+                          <mat-option [value]="k">{{ 'dependencies.kind.' + k | t }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                    <mat-form-field class="col-12 col-md-3">
+                      <mat-label>{{ 'guide.dependencies.target' | t }}</mat-label>
+                      @if (depForm.value.kind === 'microservice') {
+                        <mat-select formControlName="target" required>
+                          @for (ms of d.microservices; track ms.id) {
+                            @if (ms.id !== depForm.value.microserviceId) {
+                              <mat-option [value]="ms.id">{{ ms.name }}</mat-option>
+                            }
+                          }
+                        </mat-select>
+                      } @else {
+                        <input matInput formControlName="target" required />
+                      }
+                      <mat-hint>{{ 'guide.dependencies.targetHint' | t }}</mat-hint>
+                    </mat-form-field>
+                    <mat-form-field class="col-6 col-md-3">
+                      <mat-label>{{ 'guide.dependencies.criticality' | t }}</mat-label>
+                      <mat-select formControlName="criticality" required>
+                        @for (c of ['critical', 'degradable', 'optional']; track c) {
+                          <mat-option [value]="c">{{
+                            'guide.dependencies.criticalities.' + c | t
+                          }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                    <div class="col-6 col-md-9 pt-2">
+                      <mat-checkbox formControlName="hasOwnDrPlan">{{
+                        'guide.dependencies.ownPlan' | t
+                      }}</mat-checkbox>
+                    </div>
+                    <div class="col-12 col-md-3 pt-1">
+                      <button
+                        mat-flat-button
+                        type="submit"
+                        [disabled]="depForm.invalid || m.busy()"
+                      >
+                        <mat-icon>add</mat-icon>{{ 'common.add' | t }}
+                      </button>
+                    </div>
+                  </form>
+                  <h4 class="sub mt-4">{{ 'guide.objectives.title' | t }}</h4>
+                  <p class="muted small">
+                    {{ 'guide.objectives.hint' | t }}
+                    @if (d.bia) {
+                      ({{
+                        'guide.objectives.serviceTargets'
+                          | t: { rto: d.bia.serviceRtoMinutes, rpo: d.bia.serviceRpoMinutes }
+                      }})
+                    }
+                  </p>
                   <div class="table-scroll">
                     <table class="grid-table">
                       <thead>
                         <tr>
+                          <th>{{ 'services.components' | t }}</th>
+                          <th>RTO (min)</th>
+                          <th>RPO (min)</th>
                           <th></th>
-                          @for (w of d.tenant.settings.impactTimeWindowsMinutes; track w) {
-                            <th>{{ windowLabel(w) }}</th>
-                          }
                         </tr>
                       </thead>
                       <tbody>
-                        @for (c of d.tenant.settings.impactCategories; track c) {
-                          <tr>
-                            <th>{{ 'guide.bia.categories.' + c | t }}</th>
-                            @for (w of d.tenant.settings.impactTimeWindowsMinutes; track w) {
-                              <td>
-                                <mat-select
-                                  class="rating"
-                                  [value]="ratings()[ratingKey(c, w)] ?? null"
-                                  (selectionChange)="setRating(c, w, $event.value)"
-                                  [attr.aria-label]="c + ' ' + windowLabel(w)"
-                                  placeholder="–"
+                        @for (ms of d.microservices; track ms.id) {
+                          @let o = defaultObjective(ms.id);
+                          <tr (contextmenu)="o && menu.open($event, objectiveMenu(ms, o))">
+                            <td>{{ ms.name }}</td>
+                            @if (o) {
+                              <td>{{ o.rtoMinutes }}</td>
+                              <td>{{ o.rpoMinutes }}</td>
+                              <td class="actions">
+                                <button
+                                  mat-icon-button
+                                  class="more"
+                                  (click)="menu.open($event, objectiveMenu(ms, o))"
+                                  [attr.aria-label]="'common.actions' | t"
                                 >
-                                  <mat-option [value]="null">–</mat-option>
-                                  @for (r of [1, 2, 3, 4]; track r) {
-                                    <mat-option [value]="r"
-                                      >{{ r }} – {{ 'risk.levels.' + r | t }}</mat-option
-                                    >
-                                  }
-                                </mat-select>
+                                  <mat-icon>more_vert</mat-icon>
+                                </button>
+                              </td>
+                            } @else {
+                              <td>
+                                <input
+                                  class="cell-input"
+                                  type="number"
+                                  min="0"
+                                  [attr.aria-label]="ms.name + ' RTO'"
+                                  (input)="setDraft(ms.id, 'rto', $any($event.target).value)"
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  class="cell-input"
+                                  type="number"
+                                  min="0"
+                                  [attr.aria-label]="ms.name + ' RPO'"
+                                  (input)="setDraft(ms.id, 'rpo', $any($event.target).value)"
+                                />
+                              </td>
+                              <td>
+                                <button
+                                  mat-button
+                                  (click)="saveObjective(ms.id)"
+                                  [disabled]="m.busy()"
+                                >
+                                  {{ 'common.save' | t }}
+                                </button>
                               </td>
                             }
                           </tr>
@@ -285,376 +452,134 @@
                       </tbody>
                     </table>
                   </div>
-                </div>
-                <div class="col-12 mt-2">
-                  <button mat-flat-button type="submit" [disabled]="biaForm.invalid || m.busy()">
-                    {{ 'common.save' | t }}
-                  </button>
-                </div>
-              </form>
-            }
-
-            @case ('dependencies') {
-              <h4 class="sub">{{ 'guide.dependencies.title' | t }}</h4>
-              <div class="table-scroll mb-2">
-                <table class="grid-table">
-                  <thead>
-                    <tr>
-                      <th>{{ 'guide.dependencies.from' | t }}</th>
-                      <th>{{ 'guide.dependencies.target' | t }}</th>
-                      <th>{{ 'guide.dependencies.kind' | t }}</th>
-                      <th>{{ 'guide.dependencies.criticality' | t }}</th>
-                      <th>{{ 'guide.dependencies.ownPlan' | t }}</th>
-                      <th class="actions"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (dep of d.dependencies; track dep.id) {
-                      <tr (contextmenu)="menu.open($event, dependencyMenu(dep))">
-                        <td>{{ msName(dep.microserviceId) }}</td>
-                        <td>{{ dep.targetName ?? msName(dep.targetMicroserviceId) }}</td>
-                        <td>{{ 'dependencies.kind.' + dep.kind | t }}</td>
-                        <td>{{ 'guide.dependencies.criticalities.' + dep.criticality | t }}</td>
-                        <td>{{ dep.hasOwnDrPlan ? '✓' : '–' }}</td>
-                        <td class="actions">
-                          <button
-                            mat-icon-button
-                            class="more"
-                            (click)="menu.open($event, dependencyMenu(dep))"
-                            [attr.aria-label]="'common.actions' | t"
-                          >
-                            <mat-icon>more_vert</mat-icon>
-                          </button>
-                        </td>
-                      </tr>
-                    } @empty {
-                      <tr>
-                        <td colspan="6" class="muted">{{ 'common.empty' | t }}</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-              @if (d.microservices.length === 0) {
-                <p class="status warn">{{ 'guide.dependencies.needAssets' | t }}</p>
-              } @else {
-                <form
-                  [formGroup]="depForm"
-                  (ngSubmit)="addDependency()"
-                  class="row g-2 align-items-start"
-                >
-                  <mat-form-field class="col-6 col-md-3">
-                    <mat-label>{{ 'guide.dependencies.from' | t }}</mat-label>
-                    <mat-select formControlName="microserviceId" required>
-                      @for (ms of d.microservices; track ms.id) {
-                        <mat-option [value]="ms.id">{{ ms.name }}</mat-option>
-                      }
-                    </mat-select>
-                  </mat-form-field>
-                  <mat-form-field class="col-6 col-md-3">
-                    <mat-label>{{ 'guide.dependencies.kind' | t }}</mat-label>
-                    <mat-select formControlName="kind" required>
-                      @for (k of dependencyKinds; track k) {
-                        <mat-option [value]="k">{{ 'dependencies.kind.' + k | t }}</mat-option>
-                      }
-                    </mat-select>
-                  </mat-form-field>
-                  <mat-form-field class="col-12 col-md-3">
-                    <mat-label>{{ 'guide.dependencies.target' | t }}</mat-label>
-                    @if (depForm.value.kind === 'microservice') {
-                      <mat-select formControlName="target" required>
-                        @for (ms of d.microservices; track ms.id) {
-                          @if (ms.id !== depForm.value.microserviceId) {
-                            <mat-option [value]="ms.id">{{ ms.name }}</mat-option>
-                          }
-                        }
-                      </mat-select>
-                    } @else {
-                      <input matInput formControlName="target" required />
-                    }
-                    <mat-hint>{{ 'guide.dependencies.targetHint' | t }}</mat-hint>
-                  </mat-form-field>
-                  <mat-form-field class="col-6 col-md-3">
-                    <mat-label>{{ 'guide.dependencies.criticality' | t }}</mat-label>
-                    <mat-select formControlName="criticality" required>
-                      @for (c of ['critical', 'degradable', 'optional']; track c) {
-                        <mat-option [value]="c">{{
-                          'guide.dependencies.criticalities.' + c | t
-                        }}</mat-option>
-                      }
-                    </mat-select>
-                  </mat-form-field>
-                  <div class="col-6 col-md-9 pt-2">
-                    <mat-checkbox formControlName="hasOwnDrPlan">{{
-                      'guide.dependencies.ownPlan' | t
-                    }}</mat-checkbox>
-                  </div>
-                  <div class="col-12 col-md-3 pt-1">
-                    <button mat-flat-button type="submit" [disabled]="depForm.invalid || m.busy()">
-                      <mat-icon>add</mat-icon>{{ 'common.add' | t }}
-                    </button>
-                  </div>
-                </form>
-                <button mat-button class="mt-2" (click)="openTab.emit('dependencies')">
-                  <mat-icon>hub</mat-icon>{{ 'guide.dependencies.openMap' | t }}
-                </button>
-
-                <h4 class="sub mt-4">{{ 'guide.objectives.title' | t }}</h4>
-                <p class="muted small">
-                  {{ 'guide.objectives.hint' | t }}
-                  @if (d.bia) {
-                    ({{
-                      'guide.objectives.serviceTargets'
-                        | t: { rto: d.bia.serviceRtoMinutes, rpo: d.bia.serviceRpoMinutes }
-                    }})
-                  }
-                </p>
-                <div class="table-scroll">
-                  <table class="grid-table">
-                    <thead>
-                      <tr>
-                        <th>{{ 'services.components' | t }}</th>
-                        <th>RTO (min)</th>
-                        <th>RPO (min)</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      @for (ms of d.microservices; track ms.id) {
-                        @let o = defaultObjective(ms.id);
-                        <tr (contextmenu)="o && menu.open($event, objectiveMenu(ms, o))">
-                          <td>{{ ms.name }}</td>
-                          @if (o) {
-                            <td>{{ o.rtoMinutes }}</td>
-                            <td>{{ o.rpoMinutes }}</td>
-                            <td class="actions">
-                              <button
-                                mat-icon-button
-                                class="more"
-                                (click)="menu.open($event, objectiveMenu(ms, o))"
-                                [attr.aria-label]="'common.actions' | t"
-                              >
-                                <mat-icon>more_vert</mat-icon>
-                              </button>
-                            </td>
-                          } @else {
-                            <td>
-                              <input
-                                class="cell-input"
-                                type="number"
-                                min="0"
-                                [attr.aria-label]="ms.name + ' RTO'"
-                                (input)="setDraft(ms.id, 'rto', $any($event.target).value)"
-                              />
-                            </td>
-                            <td>
-                              <input
-                                class="cell-input"
-                                type="number"
-                                min="0"
-                                [attr.aria-label]="ms.name + ' RPO'"
-                                (input)="setDraft(ms.id, 'rpo', $any($event.target).value)"
-                              />
-                            </td>
-                            <td>
-                              <button
-                                mat-button
-                                (click)="saveObjective(ms.id)"
-                                [disabled]="m.busy()"
-                              >
-                                {{ 'common.save' | t }}
-                              </button>
-                            </td>
-                          }
-                        </tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
-              }
-            }
-
-            @case ('scenarios') {
-              <div class="d-flex flex-wrap gap-2 mb-3">
-                <span class="status info">{{
-                  'scenarioMap.total' | t: { count: scenarioCounts().total }
-                }}</span>
-                <span class="status warn">{{
-                  'scenarioMap.openCount' | t: { count: scenarioCounts().open }
-                }}</span>
-                <span class="status ok">{{
-                  'scenarioMap.selectedCount' | t: { count: scenarioCounts().selected }
-                }}</span>
-                <span class="status">{{
-                  'risk.unrated' | t: { count: scenarioCounts().unrated }
-                }}</span>
-              </div>
-              <p>{{ 'guide.scenarios.howTo' | t }}</p>
-              <button mat-flat-button class="mb-3" (click)="openTab.emit('scenarios')">
-                <mat-icon>account_tree</mat-icon>{{ 'guide.scenarios.openMap' | t }}
-              </button>
-              <h4 class="sub">{{ 'scenarioMap.suggestions' | t }}</h4>
-              <ul class="plain">
-                @for (sg of (suggestions.value() ?? []).slice(0, 6); track sg.templateId) {
-                  <li>
-                    <span class="flex-grow-1">
-                      <strong>{{ sg.title }}</strong>
-                      <span class="muted small">
-                        · {{ 'scenarioMap.relevance.' + sg.relevance | t }}</span
-                      >
-                    </span>
-                    <button
-                      mat-icon-button
-                      (click)="acceptSuggestion(sg.templateId)"
-                      [disabled]="m.busy()"
-                      [attr.aria-label]="('common.add' | t) + ': ' + sg.title"
-                    >
-                      <mat-icon>add_circle</mat-icon>
-                    </button>
-                  </li>
-                } @empty {
-                  <li class="muted">{{ 'scenarioMap.noSuggestions' | t }}</li>
                 }
-              </ul>
-            }
+              }
 
-            @case ('mitigations') {
-              <app-measures-view
-                [serviceId]="serviceId()"
-                [reloadKey]="reloadKey()"
-                (changed)="changed.emit()"
-              />
-            }
+              @case ('scenarios') {
+                <app-scenario-map
+                  [serviceId]="serviceId()"
+                  [serviceName]="d.service.name"
+                  [reloadKey]="reloadKey()"
+                  (changed)="changed.emit()"
+                />
+              }
 
-            @case ('validate') {
-              <p>{{ 'guide.validate.howTo' | t }}</p>
-              <div class="d-flex flex-wrap gap-2">
-                <span class="status" [class]="d.readiness.untestedScenarios ? 'warn' : 'ok'"
-                  >{{ 'readiness.untestedScenarios' | t }}:
-                  {{ d.readiness.untestedScenarios }}</span
-                >
-                <span class="status info"
-                  >{{ 'readiness.lastExercise' | t }}:
-                  {{
-                    d.readiness.lastExerciseAt
-                      ? (d.readiness.lastExerciseAt | date)
-                      : ('readiness.never' | t)
-                  }}</span
-                >
-                @if (d.readiness.rtoCompliance !== undefined) {
+              @case ('mitigations') {
+                <app-measures-view
+                  [serviceId]="serviceId()"
+                  [reloadKey]="reloadKey()"
+                  (changed)="changed.emit()"
+                />
+              }
+
+              @case ('validate') {
+                <p>{{ 'guide.validate.howTo' | t }}</p>
+                <div class="d-flex flex-wrap gap-2">
+                  <span class="status" [class]="d.readiness.untestedScenarios ? 'warn' : 'ok'"
+                    >{{ 'readiness.untestedScenarios' | t }}:
+                    {{ d.readiness.untestedScenarios }}</span
+                  >
                   <span class="status info"
-                    >{{ 'readiness.rtoCompliance' | t }}: {{ d.readiness.rtoCompliance }}%</span
+                    >{{ 'readiness.lastExercise' | t }}:
+                    {{
+                      d.readiness.lastExerciseAt
+                        ? (d.readiness.lastExerciseAt | date)
+                        : ('readiness.never' | t)
+                    }}</span
                   >
-                }
-              </div>
-            }
-
-            @case ('plan') {
-              <p>{{ 'guide.plan.howTo' | t }}</p>
-              <app-roles-communication
-                [serviceId]="serviceId()"
-                [reloadKey]="reloadKey()"
-                (changed)="changed.emit()"
-              />
-              <h4 class="sub mt-4">{{ 'guide.plan.review' | t }}</h4>
-              <div class="d-flex flex-wrap gap-2">
-                <button mat-stroked-button (click)="openTab.emit('handbook')">
-                  <mat-icon>menu_book</mat-icon>{{ 'guide.plan.preview' | t }}
-                </button>
-                <button mat-stroked-button (click)="openTab.emit('compliance')">
-                  <mat-icon>verified</mat-icon>{{ 'guide.plan.compliance' | t }}
-                </button>
-                <button mat-flat-button (click)="submitPlan()" [disabled]="m.busy()">
-                  <mat-icon>send</mat-icon>{{ 'plans.submit' | t }}
-                </button>
-              </div>
-            }
-          }
-
-          <!-- Workflow steps (gates) of this stage -->
-          <h4 class="sub mt-4">{{ 'guide.gates' | t }}</h4>
-          @for (step of stageSteps(); track step.key) {
-            <div class="gate">
-              <div class="gate-head">
-                <span class="step-number">{{ step.number }}</span>
-                <strong class="flex-grow-1">{{ step.title }}</strong>
-                <app-step-status [status]="step.status" />
-                @if (step.status === 'complete') {
-                  <button mat-button (click)="reopenStep(step)" [disabled]="m.busy()">
-                    {{ 'workflow.reopen' | t }}
-                  </button>
-                } @else {
-                  <button
-                    mat-stroked-button
-                    (click)="completeStep(step)"
-                    [disabled]="m.busy() || !step.gatePassed"
-                  >
-                    {{ 'workflow.complete' | t }}
-                  </button>
-                }
-              </div>
-              <ul class="issues">
-                @for (i of step.issues; track $index) {
-                  <li [class]="i.severity">
-                    <mat-icon>{{ i.severity === 'blocking' ? 'block' : 'warning' }}</mat-icon>
-                    <span>{{ i.message }}</span>
-                    @if (i.standardRef) {
-                      <mat-icon class="ref" [matTooltip]="i.standardRef">info</mat-icon>
-                    }
-                  </li>
-                } @empty {
-                  <li><mat-icon class="ok">check_circle</mat-icon>{{ 'workflow.gateOk' | t }}</li>
-                }
-              </ul>
-              @if (step.completedAt) {
-                <div class="muted small">
-                  {{ step.completedBy }} · {{ step.completedAt | date: 'short' }}
+                  @if (d.readiness.rtoCompliance !== undefined) {
+                    <span class="status info"
+                      >{{ 'readiness.rtoCompliance' | t }}: {{ d.readiness.rtoCompliance }}%</span
+                    >
+                  }
                 </div>
               }
-            </div>
-          }
-        </div>
-      </div>
-    </mat-card-content>
 
-    <!-- Next-step hint -->
-    <mat-card-actions class="next">
-      <div class="hint flex-grow-1">
-        <mat-icon>arrow_forward</mat-icon>
-        @if (issues()[0]?.severity === 'blocking') {
-          <span
-            ><strong>{{ 'guide.nextStep' | t }}:</strong> {{ issues()[0].message }}</span
-          >
-        } @else if (incompleteSteps().length) {
-          <span>
-            <strong>{{ 'guide.nextStep' | t }}:</strong>
-            {{ 'guide.completeHint' | t: { steps: incompleteSteps().length } }}
-          </span>
-        } @else if (next(); as n) {
-          <span>
-            <strong>{{ 'guide.nextStep' | t }}:</strong>
-            {{ 'guide.stages.' + n.key + '.title' | t }}
-          </span>
-        } @else {
-          <span>{{ 'guide.allDone' | t }}</span>
-        }
-      </div>
-      @if (incompleteSteps().length) {
-        <button
-          mat-flat-button
-          (click)="completeStage()"
-          [disabled]="m.busy() || issues()[0]?.severity === 'blocking'"
-        >
-          <mat-icon>task_alt</mat-icon>{{ 'guide.completeStage' | t }}
-        </button>
-      }
-      @if (next(); as n) {
-        <button mat-stroked-button (click)="continue()">
-          {{ 'guide.continue' | t }}: {{ 'guide.stages.' + n.key + '.title' | t }}
-        </button>
-      }
-    </mat-card-actions>
-  </mat-card>
+              @case ('plan') {
+                <p>{{ 'guide.plan.howTo' | t }}</p>
+                <app-roles-communication
+                  [serviceId]="serviceId()"
+                  [reloadKey]="reloadKey()"
+                  (changed)="changed.emit()"
+                />
+                <h4 class="sub mt-4">{{ 'guide.plan.review' | t }}</h4>
+                <div class="d-flex flex-wrap gap-2">
+                  <button mat-stroked-button (click)="openTab.emit('handbook')">
+                    <mat-icon>menu_book</mat-icon>{{ 'guide.plan.preview' | t }}
+                  </button>
+                  <button mat-stroked-button (click)="openTab.emit('compliance')">
+                    <mat-icon>verified</mat-icon>{{ 'guide.plan.compliance' | t }}
+                  </button>
+                  <button mat-flat-button (click)="submitPlan()" [disabled]="m.busy()">
+                    <mat-icon>send</mat-icon>{{ 'plans.submit' | t }}
+                  </button>
+                </div>
+              }
+            }
+
+            <details class="workflow-details mt-3">
+              <summary>
+                {{ 'guide.gates' | t }}
+                <span class="muted">· {{ incompleteSteps().length }}</span>
+              </summary>
+              @for (step of stageSteps(); track step.key) {
+                <div class="gate">
+                  <div class="gate-head">
+                    <span class="step-number">{{ step.number }}</span>
+                    <strong class="flex-grow-1">{{ step.title }}</strong>
+                    <app-step-status [status]="step.status" />
+                    @if (step.status === 'complete') {
+                      <button mat-button (click)="reopenStep(step)" [disabled]="m.busy()">
+                        {{ 'workflow.reopen' | t }}
+                      </button>
+                    } @else {
+                      <button
+                        mat-stroked-button
+                        (click)="completeStep(step)"
+                        [disabled]="m.busy() || !step.gatePassed"
+                      >
+                        {{ 'workflow.complete' | t }}
+                      </button>
+                    }
+                  </div>
+                  <ul class="issues">
+                    @for (i of step.issues; track $index) {
+                      <li [class]="i.severity">
+                        <mat-icon>{{ i.severity === 'blocking' ? 'block' : 'warning' }}</mat-icon>
+                        <span>{{ i.message }}</span>
+                        @if (i.standardRef) {
+                          <mat-icon class="ref" [matTooltip]="i.standardRef">info</mat-icon>
+                        }
+                      </li>
+                    } @empty {
+                      <li>
+                        <mat-icon class="ok">check_circle</mat-icon>{{ 'workflow.gateOk' | t }}
+                      </li>
+                    }
+                  </ul>
+                  @if (step.completedAt) {
+                    <div class="muted small">
+                      {{ step.completedBy }} · {{ step.completedAt | date: 'short' }}
+                    </div>
+                  }
+                </div>
+              }
+              @if (incompleteSteps().length) {
+                <button
+                  mat-flat-button
+                  class="mt-2"
+                  (click)="completeStage()"
+                  [disabled]="m.busy() || issues()[0]?.severity === 'blocking'"
+                >
+                  <mat-icon>task_alt</mat-icon>{{ 'guide.completeStage' | t }}
+                </button>
+              }
+            </details>
+          </div>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  </mat-tab-nav-panel>
 }
 
 <app-context-menu #menu />
