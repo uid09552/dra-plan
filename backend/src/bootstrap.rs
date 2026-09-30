@@ -21,6 +21,8 @@ use crate::features::audit::application::AuditUseCases;
 use crate::features::audit::infra::PgAuditRepository;
 use crate::features::bia::application::BiaUseCases;
 use crate::features::bia::infra::PgBiaRepository;
+use crate::features::categories::application::CategoryUseCases;
+use crate::features::categories::infra::PgCustomCategoryRepository;
 use crate::features::data_protection::application::DataProtectionUseCases;
 use crate::features::data_protection::infra::PgDataProtectionRepository;
 use crate::features::dependencies::application::DependencyUseCases;
@@ -56,9 +58,9 @@ use crate::features::tenants::infra::PgTenantRepository;
 use crate::features::workflow::application::WorkflowUseCases;
 use crate::features::workflow::infra::PgWorkflowRepository;
 use crate::features::{
-    action_items, ai, audit, bia, catalog, data_protection, dependencies, directory, dr_tests,
-    it_services, microservices, objectives, plans, readiness, recovery_runs, roles_comm, runbooks,
-    scenarios, strategies, tenants, workflow,
+    action_items, ai, audit, bia, catalog, categories, data_protection, dependencies, directory,
+    dr_tests, it_services, microservices, objectives, plans, readiness, recovery_runs, roles_comm,
+    runbooks, scenarios, strategies, tenants, workflow,
 };
 use crate::mcp::{self, McpConfig};
 use crate::shared::auth::{
@@ -163,6 +165,9 @@ pub fn build_state(db: Db) -> AppState {
             services.clone(),
             tenant_repo.clone(),
         )),
+        categories: Arc::new(CategoryUseCases::new(Arc::new(PgCustomCategoryRepository(
+            db.clone(),
+        )))),
         scenarios: Arc::new(ScenarioUseCases::new(
             scenario_repo.clone(),
             services.clone(),
@@ -239,6 +244,7 @@ pub fn api_routes() -> Router<AppState> {
         .merge(tenants::api::routes())
         .merge(directory::api::routes())
         .merge(catalog::api::routes())
+        .merge(categories::api::routes())
         .merge(it_services::api::routes())
         .merge(bia::api::routes())
         .merge(scenarios::api::routes())

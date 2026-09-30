@@ -1,3 +1,4 @@
+use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -11,6 +12,7 @@ use crate::app::AppState;
 use crate::features::dr_tests::domain::DrTestType;
 use crate::features::scenarios::domain::ScenarioCategory;
 use crate::shared::kernel::{Language, TenantContext};
+use crate::shared::web::ApiResult;
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/catalog", get(get_catalog))
@@ -33,7 +35,7 @@ pub fn language_from(headers: &HeaderMap) -> Language {
 #[serde(rename_all = "camelCase")]
 struct KeyLabel {
     key: String,
-    label: &'static str,
+    label: String,
 }
 
 #[derive(Serialize)]
@@ -85,15 +87,24 @@ pub struct CatalogDto {
     workflow_steps: Vec<StepDto>,
 }
 
-async fn get_catalog(_ctx: TenantContext, headers: HeaderMap) -> Json<CatalogDto> {
+async fn get_catalog(
+    State(app): State<AppState>,
+    ctx: TenantContext,
+    headers: HeaderMap,
+) -> ApiResult<Json<CatalogDto>> {
     let lang = language_from(&headers);
-    Json(CatalogDto {
+    let custom_categories = app.categories.list(&ctx).await?;
+    Ok(Json(CatalogDto {
         scenario_categories: ScenarioCategory::ALL
             .iter()
             .map(|c| KeyLabel {
                 key: c.to_string(),
-                label: category_label(*c).get(lang),
+                label: category_label(*c).get(lang).to_owned(),
             })
+            .chain(custom_categories.into_iter().map(|c| KeyLabel {
+                key: c.key,
+                label: c.label,
+            }))
             .collect(),
         scenario_templates: SCENARIO_TEMPLATES
             .iter()
@@ -137,5 +148,5 @@ async fn get_catalog(_ctx: TenantContext, headers: HeaderMap) -> Json<CatalogDto
                 bsi_ref: s.bsi_ref,
             })
             .collect(),
-    })
+    }))
 }

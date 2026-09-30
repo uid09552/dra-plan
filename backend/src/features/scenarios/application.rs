@@ -95,7 +95,9 @@ impl ScenarioUseCases {
             input.description = input
                 .description
                 .or_else(|| Some(template.description(Language::En).to_owned()));
-            input.category = input.category.or(Some(template.category));
+            input.category = input
+                .category
+                .or_else(|| Some(template.category.to_string()));
         }
         let scenario = Scenario::create(ctx, service_id, input)?;
         self.check_microservices(ctx, &scenario).await?;

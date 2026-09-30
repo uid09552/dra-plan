@@ -56,7 +56,8 @@ pub struct Scenario {
     pub service_id: Uuid,
     pub title: String,
     pub description: Option<String>,
-    pub category: Option<ScenarioCategory>,
+    /// A built-in [`ScenarioCategory`] key, or a tenant-defined custom category key.
+    pub category: Option<String>,
     /// Parent in the brainstorming tree (sub-scenario), `None` for top-level scenarios.
     pub parent_scenario_id: Option<Uuid>,
     pub affected_microservice_ids: Vec<Uuid>,
@@ -75,7 +76,7 @@ pub struct Scenario {
 pub struct ScenarioInput {
     pub title: Option<String>,
     pub description: Option<String>,
-    pub category: Option<ScenarioCategory>,
+    pub category: Option<String>,
     pub parent_scenario_id: Option<Option<Uuid>>,
     pub affected_microservice_ids: Option<Vec<Uuid>>,
     /// Risk assessment before the decision (e.g. placing the scenario in the risk matrix).
@@ -250,7 +251,7 @@ impl Scenario {
             self.affected_microservice_ids
                 .extend(source.affected_microservice_ids.iter().copied());
             if self.category.is_none() {
-                self.category = source.category;
+                self.category = source.category.clone();
             }
         }
         self.affected_microservice_ids = dedup(std::mem::take(&mut self.affected_microservice_ids));
@@ -307,7 +308,7 @@ fn dedup(ids: Vec<Uuid>) -> Vec<Uuid> {
 #[derive(Debug, Clone, Default)]
 pub struct ScenarioFilter {
     pub status: Option<ScenarioStatus>,
-    pub category: Option<ScenarioCategory>,
+    pub category: Option<String>,
     pub dr_required: Option<DrRequired>,
 }
 

@@ -132,9 +132,21 @@ export const en = {
     subtitle: 'Personal preferences and tenant configuration',
     personal: 'Personal',
     tenant: 'Tenant',
+    general: 'General',
     reviewInterval: 'Plan review interval (months)',
     aiEnabled: 'AI assistance enabled',
     tolerance: 'Impact tolerance level (1–4)',
+    categories: {
+      title: 'Categories',
+      subtitle:
+        'Custom scenario categories, in addition to the 15 built-in ones. Used when brainstorming scenarios.',
+      key: 'Key',
+      keyHint: 'Lowercase letters, digits, `-` or `_`; must not match a built-in category',
+      label: 'Label',
+      add: 'Add category',
+      empty: 'No custom categories yet.',
+      delete: 'Delete category',
+    },
   },
   profile: {
     title: 'Profile',

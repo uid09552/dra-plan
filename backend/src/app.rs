@@ -6,6 +6,7 @@ use crate::features::action_items::application::ActionItemUseCases;
 use crate::features::ai::application::AiUseCases;
 use crate::features::audit::application::AuditUseCases;
 use crate::features::bia::application::BiaUseCases;
+use crate::features::categories::application::CategoryUseCases;
 use crate::features::data_protection::application::DataProtectionUseCases;
 use crate::features::dependencies::application::DependencyUseCases;
 use crate::features::directory::application::DirectoryUseCases;
@@ -31,6 +32,7 @@ pub struct AppState {
     pub directory: Arc<DirectoryUseCases>,
     pub services: Arc<ItServiceUseCases>,
     pub bia: Arc<BiaUseCases>,
+    pub categories: Arc<CategoryUseCases>,
     pub scenarios: Arc<ScenarioUseCases>,
     pub microservices: Arc<MicroserviceUseCases>,
     pub dependencies: Arc<DependencyUseCases>,

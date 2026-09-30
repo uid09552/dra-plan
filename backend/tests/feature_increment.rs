@@ -125,14 +125,6 @@ async fn scenarios_form_a_tree_without_cycles() {
     .await
     .expect(StatusCode::UNPROCESSABLE_ENTITY);
 
-    // Old coarse categories are gone.
-    app.post(
-        &format!("/services/{service}/scenarios"),
-        json!({ "title": "x", "category": "data" }),
-    )
-    .await
-    .expect(StatusCode::UNPROCESSABLE_ENTITY);
-
     // Detaching works with null.
     let detached = app
         .patch(

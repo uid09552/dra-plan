@@ -5,6 +5,7 @@ pub mod ai;
 pub mod audit;
 pub mod bia;
 pub mod catalog;
+pub mod categories;
 pub mod data_protection;
 pub mod dependencies;
 pub mod directory;

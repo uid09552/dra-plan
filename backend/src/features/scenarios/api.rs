@@ -10,8 +10,8 @@ use uuid::Uuid;
 use validator::Validate;
 
 use super::domain::{
-    Decision, DrRequired, Priority, Scenario, ScenarioCategory, ScenarioDecision, ScenarioFilter,
-    ScenarioInput, ScenarioStatus,
+    Decision, DrRequired, Priority, Scenario, ScenarioDecision, ScenarioFilter, ScenarioInput,
+    ScenarioStatus,
 };
 use crate::app::AppState;
 use crate::features::catalog::api::language_from;
@@ -49,9 +49,8 @@ pub struct ScenarioDto {
     pub service_id: Uuid,
     pub title: String,
     pub description: Option<String>,
-    #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
-    pub category: Option<ScenarioCategory>,
+    pub category: Option<String>,
     #[serde(default)]
     pub parent_scenario_id: Option<Uuid>,
     pub affected_microservice_ids: Vec<Uuid>,
@@ -137,9 +136,9 @@ pub struct ScenarioFieldsDto {
     pub title: Option<String>,
     #[validate(length(max = 10000))]
     pub description: Option<String>,
-    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[validate(length(max = 40))]
     #[serde(default)]
-    pub category: Option<ScenarioCategory>,
+    pub category: Option<String>,
     #[validate(length(max = 500))]
     pub affected_microservice_ids: Option<Vec<Uuid>>,
     /// Parent scenario (sub-scenario in the brainstorming tree); `null` makes it top-level.
@@ -209,9 +208,8 @@ pub struct ListQuery {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub status: Option<ScenarioStatus>,
-    #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
-    pub category: Option<ScenarioCategory>,
+    pub category: Option<String>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub dr_required: Option<DrRequired>,

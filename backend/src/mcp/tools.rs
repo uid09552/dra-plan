@@ -420,7 +420,7 @@ async fn service_overview(
         })).collect::<Vec<_>>(),
         "scenarios": aggregate.scenarios.iter().map(|s| json!({
             "id": s.meta.id, "title": s.title, "status": s.status.to_string(),
-            "category": s.category.map(|c| c.to_string()), "drRequired": s.dr_required.map(|d| d.to_string()),
+            "category": s.category.clone(), "drRequired": s.dr_required.map(|d| d.to_string()),
         })).collect::<Vec<_>>(),
         "workflow": {
             "completionPercent": workflow.completion_percent,
@@ -632,7 +632,7 @@ async fn add_scenarios(app: &AppState, ctx: &TenantContext, value: Value) -> App
         let input = ScenarioInput {
             title: s.title,
             description: s.description,
-            category: enum_opt(s.category.as_deref(), "category")?,
+            category: s.category,
             parent_scenario_id: Some(s.parent_scenario_id),
             ..Default::default()
         };
@@ -640,7 +640,7 @@ async fn add_scenarios(app: &AppState, ctx: &TenantContext, value: Value) -> App
             .scenarios
             .create(ctx, a.service_id, input, s.catalog_template_id.as_deref())
             .await?;
-        created.push(json!({ "id": scenario.meta.id, "title": scenario.title, "category": scenario.category.map(|c| c.to_string()) }));
+        created.push(json!({ "id": scenario.meta.id, "title": scenario.title, "category": scenario.category }));
     }
     json_of(json!({ "created": created }))
 }
@@ -1076,24 +1076,6 @@ fn object(properties: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": properties, "required": required, "additionalProperties": false })
 }
 
-const SCENARIO_CATEGORIES: [&str; 15] = [
-    "infrastructure",
-    "hardware",
-    "network",
-    "cloud",
-    "application",
-    "database",
-    "storage",
-    "backup",
-    "cybersecurity",
-    "people",
-    "supplier",
-    "facility",
-    "power",
-    "environmental",
-    "operational",
-];
-
 fn schema_catalog() -> Value {
     object(json!({ "language": string_enum(&["en", "de"]) }), &[])
 }
@@ -1176,7 +1158,7 @@ fn schema_add_scenarios() -> Value {
             "serviceId": uuid(),
             "scenarios": { "type": "array", "items": object(json!({
                 "title": { "type": "string" }, "description": { "type": "string" },
-                "category": string_enum(&SCENARIO_CATEGORIES),
+                "category": { "type": "string", "description": "A key from get_catalog's scenarioCategories (built-in or tenant-defined custom category)" },
                 "parentScenarioId": { "type": "string", "format": "uuid", "description": "Create as sub-scenario" },
                 "catalogTemplateId": { "type": "string", "description": "See get_catalog" }
             }), &[]) }
@@ -1338,13 +1320,6 @@ fn schema_close() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::features::scenarios::domain::ScenarioCategory;
-
-    #[test]
-    fn scenario_categories_match_the_domain() {
-        let domain: Vec<&str> = ScenarioCategory::ALL.iter().map(|c| c.as_str()).collect();
-        assert_eq!(domain, SCENARIO_CATEGORIES);
-    }
 
     #[test]
     fn tool_names_are_unique() {

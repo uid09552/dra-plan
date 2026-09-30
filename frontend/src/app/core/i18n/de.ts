@@ -136,9 +136,22 @@ export const de: Texts<typeof en> = {
     subtitle: 'Persönliche Einstellungen und Mandantenkonfiguration',
     personal: 'Persönlich',
     tenant: 'Mandant',
+    general: 'Allgemein',
     reviewInterval: 'Prüfintervall der Pläne (Monate)',
     aiEnabled: 'KI-Unterstützung aktiv',
     tolerance: 'Toleranzschwelle Schaden (1–4)',
+    categories: {
+      title: 'Kategorien',
+      subtitle:
+        'Eigene Szenario-Kategorien zusätzlich zu den 15 eingebauten. Werden beim Brainstorming von Szenarien angezeigt.',
+      key: 'Schlüssel',
+      keyHint:
+        'Kleinbuchstaben, Ziffern, `-` oder `_`; darf keiner eingebauten Kategorie entsprechen',
+      label: 'Bezeichnung',
+      add: 'Kategorie hinzufügen',
+      empty: 'Noch keine eigenen Kategorien.',
+      delete: 'Kategorie löschen',
+    },
   },
   profile: {
     title: 'Profil',

@@ -46,6 +46,8 @@ tags:
     description: Tenant members, persons (contacts) and the DR role catalog (BSI BAO).
   - name: Catalog
     description: Seed data covering scenario templates, strategy types, test types and workflow steps.
+  - name: Categories
+    description: Tenant-defined scenario categories, in addition to the built-in ones (Settings > Categories).
   - name: IT Services
     description: Business-facing IT services (workflow step 1). They own the BIA, scenarios and plan versions.
   - name: Business Impact
@@ -427,6 +429,61 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         default: { $ref: '#/components/responses/Error' }
 
+  # ───────────────────────────── Categories ─────────────────────────────
+  /categories:
+    get:
+      tags: [Categories]
+      operationId: listCategories
+      summary: List the tenant's custom scenario categories
+      responses:
+        '200':
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CustomCategory' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Categories]
+      operationId: createCategory
+      summary: Add a custom scenario category
+      description: The key must not collide with a built-in `ScenarioCategory` or an existing custom one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomCategoryCreate' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomCategory' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /categories/{categoryId}:
+    parameters:
+      - name: categoryId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Categories]
+      operationId: deleteCategory
+      summary: Delete a custom scenario category
+      description: Existing scenarios keep the category key as free text; only the picklist entry is removed.
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        default: { $ref: '#/components/responses/Error' }
+
   # ───────────────────────────── IT Services ─────────────────────────────
   /services:
     get:
@@ -621,7 +678,7 @@ paths:
           schema: { $ref: '#/components/schemas/ScenarioStatus' }
         - name: category
           in: query
-          schema: { $ref: '#/components/schemas/ScenarioCategory' }
+          schema: { type: string, description: A built-in ScenarioCategory key or a tenant-defined custom category key }
         - name: drRequired
           in: query
           schema: { $ref: '#/components/schemas/DrRequired' }
@@ -2923,6 +2980,23 @@ components:
           properties:
             isDefault: { type: boolean, readOnly: true }
 
+    # ─────────── Categories ───────────
+    CustomCategoryCreate:
+      type: object
+      required: [key, label]
+      properties:
+        key:
+          type: string
+          minLength: 2
+          maxLength: 40
+          pattern: '^[a-z0-9_-]{2,40}$'
+          description: Lowercase, must not collide with a built-in ScenarioCategory
+        label: { type: string, minLength: 1, maxLength: 80 }
+    CustomCategory:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMeta'
+        - $ref: '#/components/schemas/CustomCategoryCreate'
+
     # ─────────── Catalog ───────────
     Catalog:
       type: object
@@ -2932,7 +3006,7 @@ components:
           items:
             type: object
             properties:
-              key: { $ref: '#/components/schemas/ScenarioCategory' }
+              key: { type: string }
               label: { type: string }
         scenarioTemplates:
           type: array
@@ -3091,7 +3165,7 @@ components:
       properties:
         title: { type: string, minLength: 1 }
         description: { type: string }
-        category: { $ref: '#/components/schemas/ScenarioCategory' }
+        category: { type: string, description: A built-in ScenarioCategory key or a tenant-defined custom category key }
         parentScenarioId:
           type: [string, 'null']
           format: uuid

@@ -41,7 +41,7 @@ impl ScenarioRow {
             service_id: self.service_id,
             title: self.title,
             description: self.description,
-            category: db_enum_opt(self.category.as_deref())?,
+            category: self.category,
             parent_scenario_id: self.parent_scenario_id,
             affected_microservice_ids: affected,
             status: db_enum(&self.status)?,
@@ -118,7 +118,7 @@ impl ScenarioRepository for PgScenarioRepository {
         .bind(ctx.tenant_id.0)
         .bind(service_id)
         .bind(f.status.map(|v| v.as_str()))
-        .bind(f.category.map(|v| v.as_str()))
+        .bind(f.category.as_deref())
         .bind(f.dr_required.map(|v| v.as_str()))
         .fetch_all(&mut *tx)
         .await?;
@@ -156,7 +156,7 @@ impl ScenarioRepository for PgScenarioRepository {
         .bind(s.service_id)
         .bind(&s.title)
         .bind(&s.description)
-        .bind(s.category.map(|v| v.as_str()))
+        .bind(s.category.as_deref())
         .bind(s.status.as_str())
         .bind(s.provenance.origin.as_str())
         .bind(s.provenance.ai_suggestion_id)
@@ -193,7 +193,7 @@ impl ScenarioRepository for PgScenarioRepository {
             .bind(s.meta.version)
             .bind(&s.title)
             .bind(&s.description)
-            .bind(s.category.map(|v| v.as_str()))
+            .bind(s.category.as_deref())
             .bind(s.status.as_str())
             .bind(s.merged_into_id)
             .bind(s.likelihood.map(|r| i32::from(r.get())))

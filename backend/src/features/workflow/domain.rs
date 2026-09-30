@@ -428,7 +428,11 @@ pub fn evaluate(key: WorkflowStepKey, g: &GateContext<'_>) -> Vec<Issue> {
                     None,
                 );
             }
-            let categories: HashSet<_> = a.scenarios.iter().filter_map(|s| s.category).collect();
+            let categories: HashSet<_> = a
+                .scenarios
+                .iter()
+                .filter_map(|s| s.category.clone())
+                .collect();
             if !active.is_empty() && categories.len() < 3 {
                 c.warn(
                     "FEW_SCENARIO_CATEGORIES",

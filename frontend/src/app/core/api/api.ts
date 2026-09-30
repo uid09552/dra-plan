@@ -8,6 +8,7 @@ import {
   Catalog,
   CommunicationRule,
   ComplianceItem,
+  CustomCategory,
   Dependency,
   DependencyGraph,
   ItService,
@@ -54,6 +55,18 @@ export class Api {
 
   catalog(): Observable<Catalog> {
     return this.http.get<Catalog>(`${API_BASE}/catalog`);
+  }
+
+  categories(): Observable<CustomCategory[]> {
+    return this.http.get<CustomCategory[]>(`${API_BASE}/categories`);
+  }
+
+  createCategory(body: { key: string; label: string }): Observable<CustomCategory> {
+    return this.http.post<CustomCategory>(`${API_BASE}/categories`, body);
+  }
+
+  deleteCategory(id: string): Observable<void> {
+    return this.http.delete<void>(`${API_BASE}/categories/${id}`);
   }
 
   // Directory

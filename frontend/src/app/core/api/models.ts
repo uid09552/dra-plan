@@ -56,6 +56,12 @@ export interface Person extends ResourceMeta {
   team?: string;
 }
 
+/** Tenant-defined scenario category, in addition to the built-in ones (Settings > Categories). */
+export interface CustomCategory extends ResourceMeta {
+  key: string;
+  label: string;
+}
+
 export type PlanStatus = 'draft' | 'in_review' | 'approved' | 'retired';
 
 export interface ServiceSummary {
