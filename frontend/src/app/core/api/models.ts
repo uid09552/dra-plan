@@ -204,6 +204,47 @@ export interface RecoveryStrategy extends ResourceMeta {
   gapCheck?: { status: 'meets' | 'gap' | 'no_objective'; rtoGapMinutes?: number };
 }
 
+export type RunbookPhase = 'activation' | 'recovery' | 'reconstitution';
+
+export const RUNBOOK_PHASES: RunbookPhase[] = ['activation', 'recovery', 'reconstitution'];
+
+/** Editable fields of a runbook step. `verification` is shown as "expected result". */
+export interface RunbookStepFields {
+  phase: RunbookPhase;
+  title: string;
+  instructions?: string;
+  ownerRoleId?: string | null;
+  expectedDurationMinutes?: number | null;
+  verification?: string;
+  prerequisites?: string;
+  evidenceRequired?: string;
+  dependsOnStepIds?: string[];
+  isDecisionPoint?: boolean;
+  requiresAuthorizationRoleId?: string | null;
+}
+
+export interface RunbookStep extends ResourceMeta, RunbookStepFields {
+  runbookId: string;
+  seq: number;
+  dependsOnStepIds: string[];
+  isDecisionPoint: boolean;
+}
+
+export interface Runbook extends ResourceMeta {
+  microserviceId: string;
+  scenarioId: string;
+  strategyId?: string | null;
+  title: string;
+  description?: string;
+  stepCount: number;
+  criticalPathMinutes: number;
+  exceedsRto: boolean;
+}
+
+export interface RunbookDetail extends Runbook {
+  steps: RunbookStep[];
+}
+
 export interface NextAction {
   serviceId?: string;
   serviceName?: string;

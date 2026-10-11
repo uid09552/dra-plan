@@ -470,6 +470,11 @@
                   [reloadKey]="reloadKey()"
                   (changed)="changed.emit()"
                 />
+                <app-runbooks-view
+                  [serviceId]="serviceId()"
+                  [reloadKey]="reloadKey()"
+                  (changed)="changed.emit()"
+                />
               }
 
               @case ('validate') {

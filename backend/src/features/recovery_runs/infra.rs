@@ -73,6 +73,8 @@ struct StepRow {
     title: String,
     instructions: Option<String>,
     verification: Option<String>,
+    prerequisites: Option<String>,
+    evidence_required: Option<String>,
     owner_role_id: Option<Uuid>,
     expected_duration_minutes: Option<i32>,
     depends_on: Vec<Uuid>,
@@ -99,6 +101,8 @@ impl TryFrom<StepRow> for RunStepState {
             title: r.title,
             instructions: r.instructions,
             verification: r.verification,
+            prerequisites: r.prerequisites,
+            evidence_required: r.evidence_required,
             owner_role_id: r.owner_role_id,
             expected_duration: db_minutes(r.expected_duration_minutes)?,
             depends_on: r.depends_on,
@@ -189,9 +193,11 @@ async fn upsert_step(
 ) -> AppResult<()> {
     sqlx::query(
         "insert into run_step_state (tenant_id, run_id, runbook_step_id, runbook_id, microservice_id, ord, seq, phase, title,
-                instructions, verification, owner_role_id, expected_duration_minutes, depends_on, is_decision_point,
-                requires_authorization_role_id, status, assignee_person_id, started_at, finished_at, note)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                instructions, verification, prerequisites, evidence_required, owner_role_id, expected_duration_minutes,
+                depends_on, is_decision_point, requires_authorization_role_id, status, assignee_person_id, started_at,
+                finished_at, note)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
+                 $22, $23)
          on conflict (run_id, runbook_step_id) do update set status = excluded.status,
             assignee_person_id = excluded.assignee_person_id, started_at = excluded.started_at,
             finished_at = excluded.finished_at, note = excluded.note",
@@ -207,6 +213,8 @@ async fn upsert_step(
     .bind(&s.title)
     .bind(&s.instructions)
     .bind(&s.verification)
+    .bind(&s.prerequisites)
+    .bind(&s.evidence_required)
     .bind(s.owner_role_id)
     .bind(opt_minutes(s.expected_duration))
     .bind(&s.depends_on)

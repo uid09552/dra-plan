@@ -196,6 +196,15 @@ fn cell(s: Option<&str>) -> String {
     s.unwrap_or("–").replace('|', "\\|").replace('\n', " ")
 }
 
+/// A labelled sub-item of a runbook step; further lines continue the item.
+fn bullet(out: &mut String, label: &str, text: &str) {
+    let mut lines = text.lines();
+    let _ = writeln!(out, "   - {label}: {}", lines.next().unwrap_or_default());
+    for line in lines {
+        let _ = writeln!(out, "     {line}");
+    }
+}
+
 impl PlanRenderer for MarkdownPlanRenderer {
     fn markdown(&self, v: Option<&PlanVersion>, a: &PlanAggregate, lang: Language) -> String {
         let de = lang == Language::De;
@@ -410,6 +419,9 @@ impl PlanRenderer for MarkdownPlanRenderer {
                                 st.title,
                                 minutes(st.expected_duration)
                             );
+                            if let Some(p) = &st.prerequisites {
+                                bullet(&mut out, l("Prerequisites", "Voraussetzungen"), p);
+                            }
                             if let Some(i) = &st.instructions {
                                 for line in i.lines() {
                                     let _ = writeln!(out, "   {line}");
@@ -417,6 +429,9 @@ impl PlanRenderer for MarkdownPlanRenderer {
                             }
                             if let Some(vf) = &st.verification {
                                 let _ = writeln!(out, "   - {}: {vf}", l("Verify", "Prüfen"));
+                            }
+                            if let Some(e) = &st.evidence_required {
+                                bullet(&mut out, l("Evidence", "Nachweis"), e);
                             }
                             if st.is_decision_point {
                                 let auth = st

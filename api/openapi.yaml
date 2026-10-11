@@ -3508,7 +3508,15 @@ components:
         instructions: { type: string, description: Markdown }
         ownerRoleId: { type: [string, 'null'], format: uuid }
         expectedDurationMinutes: { $ref: '#/components/schemas/Minutes' }
-        verification: { type: string, description: How to confirm the step succeeded }
+        verification: { type: string, maxLength: 5000, description: 'Expected result: how to confirm the step succeeded' }
+        prerequisites:
+          type: string
+          maxLength: 5000
+          description: Conditions outside the runbook that must hold before the step starts. Reference where credentials are kept; never enter secrets.
+        evidenceRequired:
+          type: string
+          maxLength: 5000
+          description: Evidence a responder must record when completing the step (references, never secrets)
         dependsOnStepIds:
           type: array
           items: { type: string, format: uuid }
@@ -4022,6 +4030,8 @@ components:
         title: { type: string }
         instructions: { type: string }
         verification: { type: string }
+        prerequisites: { type: string, readOnly: true }
+        evidenceRequired: { type: string, readOnly: true }
         ownerRoleId: { type: [string, 'null'], format: uuid }
         expectedDurationMinutes: { type: integer }
         status: { $ref: '#/components/schemas/RunStepStatus' }

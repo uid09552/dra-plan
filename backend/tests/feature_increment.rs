@@ -429,3 +429,82 @@ async fn one_measure_covers_several_scenarios() {
     .await
     .expect(StatusCode::UNPROCESSABLE_ENTITY);
 }
+
+#[tokio::test]
+async fn runbook_steps_carry_prerequisites_and_evidence() {
+    let app = app().await;
+    let (service, microservice) = service_with_profile(&app).await;
+    let scenario = app
+        .post(
+            &format!("/services/{service}/scenarios"),
+            json!({ "title": "Database failure", "category": "database" }),
+        )
+        .await
+        .expect(StatusCode::CREATED)
+        .id();
+    app.post(
+        &format!("/scenarios/{scenario}/decision"),
+        json!({ "decision": "selected", "decisionRationale": "single site", "drRequired": "yes",
+                "affectedMicroserviceIds": [microservice] }),
+    )
+    .await
+    .expect(StatusCode::OK);
+    let runbook = app
+        .post(
+            &format!("/microservices/{microservice}/runbooks"),
+            json!({ "scenarioId": scenario, "title": "Restore orders", "steps": [
+                { "phase": "recovery", "title": "Restore database", "verification": "orders readable",
+                  "prerequisites": "Access to backup vault", "evidenceRequired": "Restore log reference" },
+                { "phase": "reconstitution", "title": "Validate shop" }
+            ]}),
+        )
+        .await
+        .expect(StatusCode::CREATED);
+    let steps = runbook.body["steps"].as_array().unwrap().clone();
+    let restore = steps[0]["id"].as_str().unwrap().to_owned();
+
+    let listed = app
+        .get(&format!("/runbooks/{}/steps", runbook.id()))
+        .await
+        .expect(StatusCode::OK);
+    let stored = &listed.body.as_array().unwrap()[0];
+    assert_eq!(stored["prerequisites"], "Access to backup vault");
+    assert_eq!(stored["evidenceRequired"], "Restore log reference");
+    let other = &listed.body.as_array().unwrap()[1];
+    assert!(
+        other.get("prerequisites").is_none(),
+        "absent fields are omitted"
+    );
+
+    let handbook = app
+        .get(&format!("/services/{service}/handbook"))
+        .await
+        .expect(StatusCode::OK);
+    assert!(handbook.text.contains("Access to backup vault"));
+    assert!(handbook.text.contains("Restore log reference"));
+
+    // Blank values clear the field; other fields stay untouched.
+    let cleared = app
+        .patch(
+            &format!("/runbook-steps/{restore}"),
+            json!({ "prerequisites": "   " }),
+        )
+        .await
+        .expect(StatusCode::OK);
+    assert!(cleared.body.get("prerequisites").is_none());
+    assert_eq!(cleared.body["evidenceRequired"], "Restore log reference");
+
+    let oversized = app
+        .patch(
+            &format!("/runbook-steps/{restore}"),
+            json!({ "evidenceRequired": "x".repeat(5001) }),
+        )
+        .await
+        .expect(StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(oversized.text.contains("evidenceRequired"));
+    let handbook = app
+        .get(&format!("/services/{service}/handbook"))
+        .await
+        .expect(StatusCode::OK);
+    assert!(!handbook.text.contains("Access to backup vault"));
+}

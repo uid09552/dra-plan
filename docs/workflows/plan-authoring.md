@@ -4,7 +4,7 @@ type: workflow
 status: draft
 tags: [workflow, authoring, ai, nist, bsi]
 created: 2026-09-27
-updated: 2026-09-29
+updated: 2026-10-11
 related: [dr-plan-model, standards-mapping, scenario-catalog, recovery-execution]
 ---
 
@@ -135,7 +135,8 @@ Example output of step 6:
 
 **9. Runbooks.**
 - Questions: executable steps grouped into **Activation** (declare, assess, notify), **Recovery** (restore, fail over) and **Reconstitution** (validate, return to normal, fail back).
-- Writes: `runbook`, `runbook_step`
+- Writes: `runbook`, `runbook_step` (owner role, prerequisites, instructions, dependencies, expected duration, expected result/verification, required evidence, decision point, approval role)
+- UI: the Guide's Mitigations stage lists runbooks per DR scenario with one row per affected component; missing runbooks show a create action. The step editor groups steps by phase, reorders them by drag and drop or "move up/down" (a reorder that breaks a dependency is rejected), and shows gate issues on the affected step. See [[ui-tour]].
 - AI support: drafts the steps from the strategy, flags steps without a verification or owner, checks ordering against dependencies, and estimates total duration against the RTO.
 - Gate: every step has an owner role, a verification and a duration, and the sum of the critical path is ≤ RTO.
 

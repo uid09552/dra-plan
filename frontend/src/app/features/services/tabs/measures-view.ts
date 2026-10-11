@@ -157,7 +157,6 @@ interface Uncovered {
         </tbody>
       </table>
     </div>
-    <p class="muted small mt-2">{{ 'guide.mitigations.runbookHint' | t }}</p>
 
     <app-context-menu #menu />
   `,

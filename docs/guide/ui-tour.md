@@ -4,7 +4,7 @@ type: guide
 status: active
 tags: [guide, ui, screenshots]
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-11
 related: [plan-authoring, frontend, feature-status]
 ---
 
@@ -62,6 +62,18 @@ rebuild misses the RTO and is flagged as a **gap**. Selected scenarios without a
 under **Not covered yet**.
 
 ![Measures with gap check and implementation status](../assets/screenshots/measures.png)
+
+## Runbooks
+
+Below the measures, the Mitigations stage lists the **runbooks** per DR scenario, one row per
+affected component, with step count, critical path and an **Exceeds RTO** warning. A component
+without a runbook shows **Create runbook**. Opening a runbook shows its steps grouped into the phases
+Activation, Recovery and Reconstitution: drag a step by its handle or use **Move up/down** to reorder,
+and right-click (or ⋮, or the context-menu key) to edit, insert or delete. Each step carries its owner
+role, prerequisites, expected result, required evidence and approval role; gate issues such as a
+missing owner are shown on the step itself.
+
+![Runbook step editor with phases](../assets/screenshots/runbooks.png)
 
 ## Dependencies
 

@@ -337,8 +337,6 @@ export const de: Texts<typeof en> = {
       select: 'Auswählen',
       selected: 'Maßnahme ausgewählt',
       selectedHint: 'Für den Plan ausgewählt',
-      runbookHint:
-        'Runbooks mit Wiederanlaufschritten werden derzeit über das MCP-Tool add_mitigation oder die API angelegt.',
       status: {
         not_implemented: 'Nicht umgesetzt',
         in_progress: 'In Umsetzung',
@@ -488,6 +486,67 @@ export const de: Texts<typeof en> = {
     gapJustification: 'Begründung',
     gapHint:
       'Die Maßnahme verfehlt das Ziel (RTO-Lücke {rto} Min.). Zum Schließen der Lücke wird eine Aufgabe angelegt.',
+  },
+  runbooks: {
+    title: 'Runbooks',
+    hint: 'Jede betroffene Komponente braucht pro DR-Szenario ein Runbook. Klicken Sie auf ein Runbook, um seine Schritte zu bearbeiten; Rechtsklick oder ⋮ für weitere Aktionen.',
+    missing: 'Noch kein Runbook',
+    create: 'Runbook anlegen',
+    createAnother: 'Weiteres Runbook anlegen',
+    edit: 'Runbook bearbeiten',
+    openSteps: 'Schritte bearbeiten',
+    deleteConfirm: 'Dieses Runbook mit allen Schritten löschen?',
+    runbookTitle: 'Titel',
+    strategy: 'Maßnahme',
+    strategyHint: 'Optional: die Maßnahme (Wiederanlaufstrategie), die dieses Runbook umsetzt',
+    noScenarios: 'Noch keine Szenarien für DR ausgewählt.',
+    summary: '{steps} Schritt(e) · kritischer Pfad {minutes} min',
+    exceedsRto: 'Überschreitet RTO',
+    exceedsRtoHint:
+      'Der kritische Pfad dieses Runbooks dauert länger als die Wiederanlaufzeit (RTO)',
+    back: 'Alle Runbooks',
+    addStep: 'Schritt hinzufügen',
+    editStep: 'Schritt bearbeiten',
+    deleteStepConfirm: 'Diesen Schritt löschen?',
+    insertAbove: 'Schritt darüber einfügen',
+    insertBelow: 'Schritt darunter einfügen',
+    moveUp: 'Nach oben',
+    moveDown: 'Nach unten',
+    noSteps: 'Noch keine Schritte.',
+    criticalPath: 'Kritischer Pfad {minutes} min',
+    rto: 'RTO {minutes} min',
+    editorHint:
+      'Schritte laufen in dieser Reihenfolge, sofern Abhängigkeiten keine parallele Arbeit erlauben. Ziehen Sie den Griff oder nutzen Sie „Nach oben/unten“; Doppelklick oder Enter zum Bearbeiten.',
+    decisionPoint: 'Entscheidungspunkt',
+    approvalBy: 'Freigabe: {role}',
+    phase: {
+      activation: 'Alarmierung',
+      recovery: 'Wiederanlauf',
+      reconstitution: 'Wiederherstellung',
+    },
+    field: {
+      phase: 'Phase',
+      title: 'Titel',
+      instructions: 'Anleitung',
+      instructionsHint:
+        'Markdown. Verweisen Sie auf den Ablageort von Zugangsdaten; nie Geheimnisse eintragen.',
+      owner: 'Verantwortliche Rolle',
+      duration: 'Erwartete Dauer',
+      prerequisites: 'Voraussetzungen',
+      prerequisitesHint:
+        'Bedingungen, die vor Beginn des Schritts erfüllt sein müssen. Keine Geheimnisse.',
+      verification: 'Erwartetes Ergebnis / Prüfung',
+      verificationHint: 'Woran erkannt wird, dass der Schritt erfolgreich war',
+      evidenceRequired: 'Erforderlicher Nachweis',
+      evidenceRequiredHint:
+        'Was beim Abschluss festzuhalten ist, z. B. eine Ticket- oder Log-Referenz. Keine Geheimnisse.',
+      dependsOn: 'Abhängig von',
+      dependsOnHint:
+        'Frühere Schritte, die zuerst abgeschlossen sein müssen (Standard: der vorherige Schritt)',
+      decisionPoint: 'Entscheidungspunkt',
+      approvalRole: 'Freigabe-Rolle',
+      approvalRoleHint: 'Rolle, die diesen Schritt freigeben muss, z. B. Failover oder Failback',
+    },
   },
   team: {
     roles: 'Rollen und Vertretungen',

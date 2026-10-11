@@ -4,7 +4,7 @@ type: requirements
 status: active
 tags: [requirements, status, mvp]
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-11
 related: [README, plan-authoring, frontend, backend, api, mcp]
 ---
 
@@ -27,7 +27,7 @@ Open and partial items are also the backlog in `todo.txt`.
 | 5 | Risk & scenario assessment | done | Likelihood × impact (1–4), 4×4 risk matrix with drag & drop rating, DR decision, recovery capability (implementation status, last tested), gap check, gate warnings | Scenario side-by-side comparison |
 | 6 | Recovery strategy | done | Measures tab (and guide stage 5): one measure covers one or more scenarios; strategy types from the catalog, guided questions, estimated RTO/RPO vs. objective (gap check, accepted gaps), implementation status, last test date | – |
 | 7 | DR plan builder | done | Handbook generated from structured data (live draft preview + immutable approved versions, Markdown export), mitigation status section | Recovery locations and failback as explicit sections |
-| 8 | Recovery procedures / runbooks | partial | Runbooks with steps (owner, duration, verification, decision points) in API and MCP (`add_mitigation`), shown in the handbook | Runbook editor in the UI; step evidence/comments/approval |
+| 8 | Recovery procedures / runbooks | partial | Runbooks with steps (owner, prerequisites, instructions, dependencies, duration, expected result/verification, required evidence, decision points, approval role) in API, MCP (`add_mitigation`) and the Guide's runbook editor (per scenario and component, phase grouping, drag & drop reorder); shown in the handbook | Recording evidence, comments and approvals during a recovery run |
 | 9 | DR activation & incident guidance | partial | Recovery runs (declare, step transitions, phases, close) in API/MCP with SSE; read-only recovery overview in the UI | Guided execution UI, escalation, decision log view |
 | 10 | Task & responsibility management | partial | DR roles, role assignments with deputies and escalation level (guide stage 6: add/edit/delete), action items with owners and due dates (API) | RACI matrix; recovery teams; action items UI |
 | 11 | Communication management | partial | Communication rules (trigger, audience, channel, responsible and authorizing role, interval, message template) editable in guide stage 6; shown in the handbook | Stakeholder groups; communication history during a recovery |
@@ -51,7 +51,7 @@ Open and partial items are also the backlog in `todo.txt`.
 | RTO/RPO | done |
 | Recovery strategy | done |
 | DR plan builder | done |
-| Recovery procedures/runbooks | partial (no UI editor) |
+| Recovery procedures/runbooks | partial (editor done; no evidence/comments/approval during runs) |
 | Roles & task assignment | partial (roles/deputies editable; no task assignment) |
 | DR testing/exercises | partial (no UI) |
 | Evidence/documentation | partial |

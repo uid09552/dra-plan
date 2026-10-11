@@ -1,7 +1,7 @@
 # Open items — feature requirements (full text: docs/requirements/README.md, status: docs/requirements/feature-status.md)
 
 ## MVP gaps
-- [ ] Runbook editor in the UI (steps: owner, prerequisites, instructions, expected result, evidence, approval)   (§8)
+- [ ] Evidence, comments and approval on run steps (openspec change add-recovery-step-records)             (§8)
 - [ ] RACI matrix and recovery teams (role assignments with deputies are editable)                            (§10)
 - [ ] Action items / findings & corrective actions UI (owner, deadline, status, retest)                         (§10, §15)
 - [ ] DR tests & exercises UI: schedule, select scenario, record results, measure RTO/RPO, report              (§12)

@@ -4,7 +4,7 @@ type: domain
 status: draft
 tags: [domain, model, database]
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-11
 related: [0004-tenant-service-microservice-hierarchy, 0011-optional-components, plan-authoring, recovery-execution, standards-mapping, scenario-catalog]
 ---
 
@@ -120,14 +120,14 @@ Conventions for every table:
 | `recovery_strategy` | microservice_id, scenario_id, type (see [[scenario-catalog]]), description, estimated_rto_minutes, estimated_rpo_minutes, cost_notes, prerequisites, is_selected | The Soll-Ist gap check compares estimated values with the objective |
 | `data_protection` | microservice_id, data_store, method (`snapshot`, `logical_backup`, `replication`, `pitr`), frequency, retention, offsite, immutable, encryption, last_restore_test_at | BSI CON.3 *Datensicherungskonzept*. Needed to prove the RPO. |
 | `runbook` | microservice_id, scenario_id, strategy_id, title, version | One runbook per microservice, scenario and strategy |
-| `runbook_step` | runbook_id, seq, phase (`activation`, `recovery`, `reconstitution`), title, instructions (Markdown), owner_role_id, expected_duration_minutes, verification, depends_on (step ids), is_decision_point, requires_authorization_role_id | NIST 800-34 plan phases |
+| `runbook_step` | runbook_id, seq, phase (`activation`, `recovery`, `reconstitution`), title, instructions (Markdown), owner_role_id, expected_duration_minutes, verification ("expected result"), prerequisites, evidence_required, depends_on (step ids), is_decision_point, requires_authorization_role_id | NIST 800-34 plan phases. `prerequisites`: conditions outside the runbook that must hold before the step starts; `evidence_required`: what a responder records on completion. Both free text (≤ 5000 characters), references only, never secrets (migration `0006`). |
 
 ### 3.4 Recovery execution
 
 | Table | Key fields | Notes |
 |-------|-----------|-------|
 | `recovery_run` | it_service_id, plan_version_id, scenario_id, mode (`real`, `test`), status, declared_by, declared_at, recovered_at, closed_at | Pins an approved plan version |
-| `run_step_state` | run_id, runbook_step_id (from snapshot), status (`pending`, `in_progress`, `done`, `skipped`, `failed`), assignee, started_at, finished_at, note | Live progress |
+| `run_step_state` | run_id, runbook_step_id (from snapshot), copies of the step fields incl. prerequisites and evidence_required, status (`pending`, `in_progress`, `done`, `skipped`, `failed`), assignee, started_at, finished_at, note | Live progress. Snapshots approved before migration `0006` carry no prerequisites/evidence; they decode with both empty. |
 | `run_event` | run_id, at, actor, type, payload | Append-only timeline (audit evidence) |
 
 ### 3.5 Cross-cutting

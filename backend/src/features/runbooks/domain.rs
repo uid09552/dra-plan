@@ -82,6 +82,9 @@ impl Runbook {
     }
 }
 
+/// Maximum length of the free-text step fields prerequisites and required evidence.
+pub const MAX_STEP_NOTE: usize = 5000;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunbookStep {
     pub meta: Meta,
@@ -94,6 +97,10 @@ pub struct RunbookStep {
     pub owner_role_id: Option<Uuid>,
     pub expected_duration: Option<Minutes>,
     pub verification: Option<String>,
+    /// Conditions outside the runbook that must hold before the step starts.
+    pub prerequisites: Option<String>,
+    /// Evidence a responder must record when completing the step.
+    pub evidence_required: Option<String>,
     pub depends_on: Vec<Uuid>,
     pub is_decision_point: bool,
     pub requires_authorization_role_id: Option<Uuid>,
@@ -107,6 +114,8 @@ pub struct StepInput {
     pub owner_role_id: Option<Option<Uuid>>,
     pub expected_duration: Option<Option<Minutes>>,
     pub verification: Option<String>,
+    pub prerequisites: Option<String>,
+    pub evidence_required: Option<String>,
     pub depends_on: Option<Vec<Uuid>>,
     pub is_decision_point: Option<bool>,
     pub requires_authorization_role_id: Option<Option<Uuid>>,
@@ -131,6 +140,8 @@ impl RunbookStep {
             owner_role_id: None,
             expected_duration: None,
             verification: None,
+            prerequisites: None,
+            evidence_required: None,
             depends_on: Vec::new(),
             is_decision_point: false,
             requires_authorization_role_id: None,
@@ -158,6 +169,12 @@ impl RunbookStep {
         if p.verification.is_some() {
             self.verification = non_blank(p.verification);
         }
+        if p.prerequisites.is_some() {
+            self.prerequisites = non_blank(p.prerequisites);
+        }
+        if p.evidence_required.is_some() {
+            self.evidence_required = non_blank(p.evidence_required);
+        }
         if let Some(mut v) = p.depends_on {
             v.sort();
             v.dedup();
@@ -176,6 +193,19 @@ impl RunbookStep {
             "/title",
             "title is required",
         );
+        for (value, field) in [
+            (&self.prerequisites, "/prerequisites"),
+            (&self.evidence_required, "/evidenceRequired"),
+        ] {
+            issues.check(
+                value
+                    .as_ref()
+                    .is_none_or(|v| v.chars().count() <= MAX_STEP_NOTE),
+                "INVALID_VALUE",
+                field,
+                "must be at most 5000 characters",
+            );
+        }
         issues.check(
             !self.depends_on.contains(&self.meta.id),
             "INVALID_VALUE",
@@ -368,6 +398,48 @@ mod tests {
         let steps = vec![a, b, c, d];
         assert_eq!(critical_path(&steps).get(), 45);
         validate_steps(&steps).expect("valid order");
+    }
+
+    #[test]
+    fn prerequisites_and_evidence_are_set_and_blank_clears() {
+        let mut s = step(1, 10, vec![]);
+        s.apply(StepInput {
+            prerequisites: Some("  Access to backup vault ".into()),
+            evidence_required: Some("Restore log reference".into()),
+            ..Default::default()
+        })
+        .expect("valid");
+        assert_eq!(s.prerequisites.as_deref(), Some("Access to backup vault"));
+        assert_eq!(
+            s.evidence_required.as_deref(),
+            Some("Restore log reference")
+        );
+
+        s.apply(StepInput {
+            title: Some("renamed".into()),
+            ..Default::default()
+        })
+        .expect("valid");
+        assert_eq!(s.prerequisites.as_deref(), Some("Access to backup vault"));
+        assert_eq!(
+            s.evidence_required.as_deref(),
+            Some("Restore log reference")
+        );
+
+        s.apply(StepInput {
+            prerequisites: Some("   ".into()),
+            evidence_required: Some(String::new()),
+            ..Default::default()
+        })
+        .expect("valid");
+        assert_eq!(s.prerequisites, None);
+        assert_eq!(s.evidence_required, None);
+
+        let too_long = s.apply(StepInput {
+            evidence_required: Some("x".repeat(MAX_STEP_NOTE + 1)),
+            ..Default::default()
+        });
+        assert!(too_long.is_err());
     }
 
     #[test]

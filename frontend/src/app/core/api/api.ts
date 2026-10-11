@@ -22,6 +22,10 @@ import {
   RecoveryStrategy,
   Role,
   RoleAssignment,
+  Runbook,
+  RunbookDetail,
+  RunbookStep,
+  RunbookStepFields,
   Scenario,
   ScenarioDecision,
   ScenarioSuggestion,
@@ -294,6 +298,70 @@ export class Api {
     body: { acceptGap?: boolean; gapJustification?: string } = {},
   ): Observable<RecoveryStrategy> {
     return this.http.post<RecoveryStrategy>(`${API_BASE}/recovery-strategies/${id}/select`, body);
+  }
+
+  // Runbooks
+  serviceRunbooks(serviceId: string): Observable<Runbook[]> {
+    return this.http.get<Runbook[]>(`${API_BASE}/services/${serviceId}/runbooks`);
+  }
+
+  runbook(id: string): Observable<RunbookDetail> {
+    return this.http.get<RunbookDetail>(`${API_BASE}/runbooks/${id}`);
+  }
+
+  createRunbook(
+    microserviceId: string,
+    body: { scenarioId: string; title: string; strategyId?: string | null; description?: string },
+  ): Observable<RunbookDetail> {
+    return this.http.post<RunbookDetail>(
+      `${API_BASE}/microservices/${microserviceId}/runbooks`,
+      body,
+    );
+  }
+
+  updateRunbook(
+    id: string,
+    body: { title?: string; description?: string; scenarioId?: string; strategyId?: string | null },
+  ): Observable<Runbook> {
+    return this.http.patch<Runbook>(`${API_BASE}/runbooks/${id}`, body, mergePatch);
+  }
+
+  deleteRunbook(id: string): Observable<void> {
+    return this.http.delete<void>(`${API_BASE}/runbooks/${id}`);
+  }
+
+  runbookSteps(runbookId: string): Observable<RunbookStep[]> {
+    return this.http.get<RunbookStep[]>(`${API_BASE}/runbooks/${runbookId}/steps`);
+  }
+
+  /** Adds a step; `position` (1-based) inserts it, otherwise it is appended. */
+  addRunbookStep(
+    runbookId: string,
+    body: RunbookStepFields & { position?: number },
+  ): Observable<RunbookStep> {
+    return this.http.post<RunbookStep>(`${API_BASE}/runbooks/${runbookId}/steps`, body);
+  }
+
+  /** Updates a step; `version` is sent as If-Match so concurrent edits are detected. */
+  updateRunbookStep(
+    id: string,
+    version: number,
+    body: Partial<RunbookStepFields>,
+  ): Observable<RunbookStep> {
+    return this.http.patch<RunbookStep>(`${API_BASE}/runbook-steps/${id}`, body, {
+      headers: { ...mergePatch.headers, 'If-Match': `"${version}"` },
+    });
+  }
+
+  deleteRunbookStep(id: string): Observable<void> {
+    return this.http.delete<void>(`${API_BASE}/runbook-steps/${id}`);
+  }
+
+  /** New order of all steps; rejected (422) if it breaks a dependency. */
+  reorderRunbookSteps(runbookId: string, stepIds: string[]): Observable<RunbookStep[]> {
+    return this.http.put<RunbookStep[]>(`${API_BASE}/runbooks/${runbookId}/steps/order`, {
+      stepIds,
+    });
   }
 
   // Workflow

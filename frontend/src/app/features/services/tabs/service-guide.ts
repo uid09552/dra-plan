@@ -22,6 +22,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { ActivatedRoute } from '@angular/router';
 import { concatMap, forkJoin, from, map, Observable, of, switchMap, toArray } from 'rxjs';
 
 import { Api } from '../../../core/api/api';
@@ -46,6 +47,7 @@ import { StepStatusChip } from '../status-chips';
 import { ComponentEditor } from './component-editor';
 import { DependencyMap } from './dependency-map';
 import { MeasuresView } from './measures-view';
+import { RunbooksView } from './runbooks-view';
 import { RolesCommunication } from './roles-communication';
 import { ScenarioMap } from './scenario-map';
 
@@ -124,6 +126,7 @@ const STATE_ICON: Partial<Record<StageState, string>> = { done: 'check_circle', 
     DependencyMap,
     MeasuresView,
     RolesCommunication,
+    RunbooksView,
     ScenarioMap,
   ],
   templateUrl: './service-guide.html',
@@ -159,8 +162,11 @@ export class ServiceGuide {
       state: workflow ? stageState(stage.steps, workflow) : ('open' as StageState),
     }));
   });
-  /** Explicitly chosen stage; defaults to the first one that is not done. */
-  private readonly chosen = signal<StageKey | null>(null);
+  /** Explicitly chosen stage; defaults to the first one that is not done (or the runbook editor
+   * when a runbook is open via the `runbook` query parameter). */
+  private readonly chosen = signal<StageKey | null>(
+    inject(ActivatedRoute).snapshot.queryParamMap.has('runbook') ? 'mitigations' : null,
+  );
   protected readonly current = computed(() => {
     const stages = this.stages();
     const key = this.chosen() ?? stages.find((s) => s.state !== 'done')?.key ?? 'plan';

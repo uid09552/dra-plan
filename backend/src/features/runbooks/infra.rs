@@ -51,6 +51,8 @@ struct StepRow {
     owner_role_id: Option<Uuid>,
     expected_duration_minutes: Option<i32>,
     verification: Option<String>,
+    prerequisites: Option<String>,
+    evidence_required: Option<String>,
     depends_on: Vec<Uuid>,
     is_decision_point: bool,
     requires_authorization_role_id: Option<Uuid>,
@@ -71,6 +73,8 @@ impl TryFrom<StepRow> for RunbookStep {
             owner_role_id: r.owner_role_id,
             expected_duration: db_minutes(r.expected_duration_minutes)?,
             verification: r.verification,
+            prerequisites: r.prerequisites,
+            evidence_required: r.evidence_required,
             depends_on: r.depends_on,
             is_decision_point: r.is_decision_point,
             requires_authorization_role_id: r.requires_authorization_role_id,
@@ -83,23 +87,26 @@ impl TryFrom<StepRow> for RunbookStep {
 async fn upsert_step(tx: &mut Tx, ctx: &TenantContext, s: &RunbookStep) -> AppResult<()> {
     sqlx::query(
         "insert into runbook_step (id, tenant_id, runbook_id, seq, phase, title, instructions, owner_role_id,
-                expected_duration_minutes, verification, depends_on, is_decision_point, requires_authorization_role_id,
-                origin, ai_suggestion_id, created_by, updated_by)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
+                expected_duration_minutes, verification, prerequisites, evidence_required, depends_on,
+                is_decision_point, requires_authorization_role_id, origin, ai_suggestion_id, created_by, updated_by)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18)
          on conflict (id) do update set
             seq = excluded.seq, phase = excluded.phase, title = excluded.title, instructions = excluded.instructions,
             owner_role_id = excluded.owner_role_id, expected_duration_minutes = excluded.expected_duration_minutes,
-            verification = excluded.verification, depends_on = excluded.depends_on,
+            verification = excluded.verification, prerequisites = excluded.prerequisites,
+            evidence_required = excluded.evidence_required, depends_on = excluded.depends_on,
             is_decision_point = excluded.is_decision_point,
             requires_authorization_role_id = excluded.requires_authorization_role_id,
             version = runbook_step.version + 1, updated_at = now(), updated_by = excluded.updated_by
          where runbook_step.tenant_id = excluded.tenant_id
            and (runbook_step.seq, runbook_step.phase, runbook_step.title, runbook_step.instructions,
                 runbook_step.owner_role_id, runbook_step.expected_duration_minutes, runbook_step.verification,
+                runbook_step.prerequisites, runbook_step.evidence_required,
                 runbook_step.depends_on, runbook_step.is_decision_point, runbook_step.requires_authorization_role_id)
                is distinct from
                (excluded.seq, excluded.phase, excluded.title, excluded.instructions, excluded.owner_role_id,
-                excluded.expected_duration_minutes, excluded.verification, excluded.depends_on,
+                excluded.expected_duration_minutes, excluded.verification, excluded.prerequisites,
+                excluded.evidence_required, excluded.depends_on,
                 excluded.is_decision_point, excluded.requires_authorization_role_id)",
     )
     .bind(s.meta.id)
@@ -112,6 +119,8 @@ async fn upsert_step(tx: &mut Tx, ctx: &TenantContext, s: &RunbookStep) -> AppRe
     .bind(s.owner_role_id)
     .bind(opt_minutes(s.expected_duration))
     .bind(&s.verification)
+    .bind(&s.prerequisites)
+    .bind(&s.evidence_required)
     .bind(&s.depends_on)
     .bind(s.is_decision_point)
     .bind(s.requires_authorization_role_id)

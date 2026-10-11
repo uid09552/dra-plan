@@ -374,7 +374,8 @@ async fn full_dr_lifecycle() {
                     { "phase": "activation", "title": "Declare DR", "ownerRoleId": ic, "expectedDurationMinutes": 10,
                       "verification": "incident opened", "isDecisionPoint": true, "requiresAuthorizationRoleId": ic },
                     { "phase": "recovery", "title": "Promote replica", "ownerRoleId": dba, "expectedDurationMinutes": 15,
-                      "verification": "replica writable" }
+                      "verification": "replica writable", "prerequisites": "Replica lag below 1 min",
+                      "evidenceRequired": "Promotion log reference" }
                 ]
             }),
         )
@@ -601,6 +602,9 @@ async fn full_dr_lifecycle() {
         "db first (restore order)"
     );
     assert_eq!(run_steps[1]["status"], "blocked");
+    assert_eq!(run_steps[1]["title"], "Promote replica");
+    assert_eq!(run_steps[1]["prerequisites"], "Replica lag below 1 min");
+    assert_eq!(run_steps[1]["evidenceRequired"], "Promotion log reference");
     let step = |i: usize| run_steps[i]["runbookStepId"].as_str().unwrap().to_owned();
     let transition = |i: usize, body: Value| {
         let path = format!("/recovery-runs/{run_id}/steps/{}/transition", step(i));

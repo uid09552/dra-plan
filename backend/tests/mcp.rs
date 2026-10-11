@@ -149,10 +149,48 @@ async fn mitigation_use_case_via_tools() {
         "runbook": { "title": "Ransomware recovery", "steps": [
             { "phase": "activation", "title": "Isolate network", "ownerRole": "incident commander", "expectedDurationMinutes": 10, "verification": "segments isolated" },
             { "phase": "recovery", "title": "Rebuild from IaC", "ownerRole": "Platform", "expectedDurationMinutes": 30, "verification": "cluster healthy" },
-            { "phase": "recovery", "title": "Restore immutable backup", "ownerRole": "DBA", "expectedDurationMinutes": 15, "verification": "checksums ok" }
+            { "phase": "recovery", "title": "Restore immutable backup", "ownerRole": "DBA", "expectedDurationMinutes": 15, "verification": "checksums ok",
+              "prerequisites": "Backup vault reachable", "evidenceRequired": "Checksum report reference" }
         ]}
     })).await;
     assert_eq!(mitigation["isError"], false, "{mitigation}");
+    let runbook_id = mitigation["structuredContent"]["runbookId"]
+        .as_str()
+        .unwrap();
+    let steps = app
+        .get(&format!("/runbooks/{runbook_id}/steps"))
+        .await
+        .expect(StatusCode::OK);
+    assert_eq!(steps.body[2]["prerequisites"], "Backup vault reachable");
+    assert_eq!(
+        steps.body[2]["evidenceRequired"],
+        "Checksum report reference"
+    );
+
+    let strategies_before = app
+        .get(&format!("/microservices/{db}/recovery-strategies"))
+        .await
+        .expect(StatusCode::OK);
+    let oversized = tool(&app, "add_mitigation", json!({
+        "microserviceId": db, "scenarioId": scenario,
+        "strategy": { "type": "backup_restore", "estimatedRtoMinutes": 60, "estimatedRpoMinutes": 5 },
+        "runbook": { "title": "x", "steps": [{ "phase": "recovery", "title": "y", "evidenceRequired": "x".repeat(5001) }] }
+    })).await;
+    assert_eq!(oversized["isError"], true);
+    assert!(
+        oversized["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("evidenceRequired")
+    );
+    let strategies_after = app
+        .get(&format!("/microservices/{db}/recovery-strategies"))
+        .await
+        .expect(StatusCode::OK);
+    assert_eq!(
+        strategies_before.body, strategies_after.body,
+        "nothing was written"
+    );
     let m = &mitigation["structuredContent"];
     assert_eq!(m["gapCheck"]["status"], "meets");
     assert_eq!(m["criticalPathMinutes"], 55);

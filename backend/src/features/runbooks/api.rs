@@ -59,6 +59,11 @@ pub struct RunbookStepDto {
     pub owner_role_id: Option<Uuid>,
     pub expected_duration_minutes: Option<u32>,
     pub verification: Option<String>,
+    /// Added after snapshot format 1 was published: absent in older snapshots.
+    #[serde(default)]
+    pub prerequisites: Option<String>,
+    #[serde(default)]
+    pub evidence_required: Option<String>,
     pub depends_on_step_ids: Vec<Uuid>,
     pub is_decision_point: bool,
     pub requires_authorization_role_id: Option<Uuid>,
@@ -77,6 +82,8 @@ impl From<RunbookStep> for RunbookStepDto {
             owner_role_id: s.owner_role_id,
             expected_duration_minutes: s.expected_duration.map(Minutes::get),
             verification: s.verification,
+            prerequisites: s.prerequisites,
+            evidence_required: s.evidence_required,
             depends_on_step_ids: s.depends_on,
             is_decision_point: s.is_decision_point,
             requires_authorization_role_id: s.requires_authorization_role_id,
@@ -99,6 +106,8 @@ impl TryFrom<RunbookStepDto> for RunbookStep {
             owner_role_id: d.owner_role_id,
             expected_duration: d.expected_duration_minutes.map(Minutes::new).transpose()?,
             verification: d.verification,
+            prerequisites: d.prerequisites,
+            evidence_required: d.evidence_required,
             depends_on: d.depends_on_step_ids,
             is_decision_point: d.is_decision_point,
             requires_authorization_role_id: d.requires_authorization_role_id,
@@ -123,6 +132,10 @@ pub struct StepFieldsDto {
     pub expected_duration_minutes: Option<Option<u32>>,
     #[validate(length(max = 5000))]
     pub verification: Option<String>,
+    #[validate(length(max = 5000))]
+    pub prerequisites: Option<String>,
+    #[validate(length(max = 5000))]
+    pub evidence_required: Option<String>,
     #[validate(length(max = 100))]
     pub depends_on_step_ids: Option<Vec<Uuid>>,
     pub is_decision_point: Option<bool>,
@@ -145,6 +158,8 @@ impl StepFieldsDto {
                 .map(|v| v.map(Minutes::new).transpose())
                 .transpose()?,
             verification: self.verification,
+            prerequisites: self.prerequisites,
+            evidence_required: self.evidence_required,
             depends_on: self.depends_on_step_ids,
             is_decision_point: self.is_decision_point,
             requires_authorization_role_id: self.requires_authorization_role_id,
@@ -459,4 +474,57 @@ async fn delete_step(
 ) -> ApiResult<Response> {
     app.runbooks.delete_step(&ctx, id).await?;
     Ok(no_content())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shared::kernel::{Principal, TenantContext, TenantId, TenantRole};
+
+    fn step() -> RunbookStep {
+        let ctx = TenantContext {
+            tenant_id: TenantId(Uuid::nil()),
+            principal: Principal {
+                user: "u".into(),
+                role: TenantRole::Admin,
+            },
+        };
+        RunbookStep::create(
+            &ctx,
+            Uuid::nil(),
+            1,
+            RunbookPhase::Recovery,
+            StepInput {
+                title: Some("Restore database".into()),
+                prerequisites: Some("Access to backup vault".into()),
+                evidence_required: Some("Restore log reference".into()),
+                ..Default::default()
+            },
+        )
+        .expect("valid")
+    }
+
+    #[test]
+    fn snapshot_step_round_trips_new_fields() {
+        let json = serde_json::to_value(RunbookStepDto::from(step())).expect("encode");
+        assert_eq!(json["prerequisites"], "Access to backup vault");
+        let dto: RunbookStepDto = serde_json::from_value(json).expect("decode");
+        let back = RunbookStep::try_from(dto).expect("valid");
+        assert_eq!(
+            back.evidence_required.as_deref(),
+            Some("Restore log reference")
+        );
+    }
+
+    #[test]
+    fn snapshot_step_written_before_the_new_fields_still_decodes() {
+        let mut json = serde_json::to_value(RunbookStepDto::from(step())).expect("encode");
+        let object = json.as_object_mut().expect("object");
+        object.remove("prerequisites");
+        object.remove("evidenceRequired");
+        let dto: RunbookStepDto = serde_json::from_value(json).expect("format 1 decodes");
+        let back = RunbookStep::try_from(dto).expect("valid");
+        assert_eq!(back.prerequisites, None);
+        assert_eq!(back.evidence_required, None);
+    }
 }

@@ -22,7 +22,7 @@ use crate::features::recovery_runs::api::{RecoveryRunDto, RunStepStateDto};
 use crate::features::recovery_runs::application::{Closing, Declaration};
 use crate::features::recovery_runs::domain::{RunStatus, RunStepStatus, Transition};
 use crate::features::runbooks::application::NewStep;
-use crate::features::runbooks::domain::{RunbookInput, StepInput};
+use crate::features::runbooks::domain::{RunbookInput, RunbookStep, StepInput};
 use crate::features::scenarios::domain::{ScenarioDecision, ScenarioInput};
 use crate::features::strategies::domain::StrategyInput;
 use crate::features::workflow::domain::STEP_DEFINITIONS;
@@ -738,6 +738,8 @@ struct StepArgs {
     owner_role: Option<String>,
     expected_duration_minutes: Option<u32>,
     verification: Option<String>,
+    prerequisites: Option<String>,
+    evidence_required: Option<String>,
     #[serde(default)]
     is_decision_point: bool,
     authorization_role: Option<String>,
@@ -788,6 +790,8 @@ async fn add_mitigation(
                     owner_role_id: Some(resolve_role(&roles, s.owner_role.as_deref())?),
                     expected_duration: Some(opt_minutes(s.expected_duration_minutes)?),
                     verification: s.verification,
+                    prerequisites: s.prerequisites,
+                    evidence_required: s.evidence_required,
                     is_decision_point: Some(s.is_decision_point),
                     requires_authorization_role_id: Some(resolve_role(
                         &roles,
@@ -798,6 +802,10 @@ async fn add_mitigation(
             })
         })
         .collect::<AppResult<Vec<_>>>()?;
+    // Validate the steps before anything is written, so a rejected step leaves no strategy behind.
+    for s in &steps {
+        RunbookStep::create(ctx, Uuid::nil(), 1, s.phase, s.input.clone())?;
+    }
     let (strategy, _) = app
         .strategies
         .create(
@@ -1223,7 +1231,9 @@ fn schema_mitigation() -> Value {
                     "title": { "type": "string" }, "instructions": { "type": "string" },
                     "ownerRole": { "type": "string", "description": "Role name (e.g. DBA) or id" },
                     "expectedDurationMinutes": minutes_schema("Expected duration"),
-                    "verification": { "type": "string", "description": "How to confirm success" },
+                    "verification": { "type": "string", "description": "Expected result: how to confirm success" },
+                    "prerequisites": { "type": "string", "maxLength": 5000, "description": "Conditions outside the runbook that must hold before the step starts (no secrets)" },
+                    "evidenceRequired": { "type": "string", "maxLength": 5000, "description": "Evidence a responder must record when completing the step (references, no secrets)" },
                     "isDecisionPoint": { "type": "boolean" },
                     "authorizationRole": { "type": "string", "description": "Role that must authorize (decision points)" }
                 }), &["phase", "title"]) }
